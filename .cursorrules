@@ -1,0 +1,10 @@
+# Cursor AI Rules - organize_music
+
+- Python >= 3.12, strict type hints on all functions and return types.
+- Follow PEP 8 via `ruff`. Line length: 100.
+- Markdown files must follow `UPPERCASE_WITH_UNDERSCORES.md` naming.
+- All shell scripts belong in `scripts/`.
+- Git commits must strictly use Conventional Commits format (`feat:`, `fix:`, etc.).
+- Never perform destructive file moves or deletes without a `--dry-run` flag.
+- Keep all files under 200 lines. Break large files into modular, cohesive components.
+- Verification command before proposing completion: `ruff check . && ruff format --check . && pytest`
