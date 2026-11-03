@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "organize_music",
+  "project_id": "812a1d70-fd0c-4ecc-b06c-de7a5faa121b"
+}
