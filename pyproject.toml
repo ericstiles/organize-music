@@ -1,15 +1,25 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "organize-music"
 version = "0.1.0"
 description = "Tools and scripts for organizing a music library, reading metadata, de-duplicating, and tidying structure."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "mutagen>=1.47",
+]
+
+[project.scripts]
+organize-music = "organize_music.cli:main"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
     "ruff>=0.5.0",
+    "pytest-cov>=5.0.0",
 ]
 
 [tool.pytest.ini_options]
@@ -34,3 +44,11 @@ ignore = []
 
 [tool.ruff.lint.isort]
 known-first-party = ["organize_music"]
+
+[tool.coverage.run]
+source = ["organize_music"]
+omit = ["*/organize_music/__main__.py"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

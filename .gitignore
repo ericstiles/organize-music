@@ -27,3 +27,11 @@ Thumbs.db
 .beads-credential-key
 .beads/proxieddb/
 *.gate.lock*
+
+# Generated reports (run output, not source)
+reports/
+
+# Packaging build output
+*.egg-info/
+build/
+dist/
