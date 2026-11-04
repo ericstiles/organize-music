@@ -13,8 +13,8 @@ Detailed contracts are in [SPECS.md](SPECS.md). The phase checklist is in
 | 1 | What comes first | **Metadata first.** CLI first; web UI later (separate beads issue). |
 | 2 | Where it runs | On the **Pi 5** (`the-pi`, `pi-host`), against the library in place. Development and tests on the Mac. |
 | 3 | Library shape | Surveyed directly: see [LIBRARY_SURVEY.md](LIBRARY_SURVEY.md). |
-| 4 | Naming | **No renames now.** A naming *template* is stored in config and can be changed later. Its first use is a **preview only**. Example (not final): `${album}-${artist}-${track}.${ext}`. |
-| 5 | Duplicates | **Whole-file MD5**, but only for files whose byte size matches another file's. Audio-only hashing (ignores tag differences) is a follow-up. |
+| 4 | Naming | A naming *template* is stored in config and can be changed later; `names` only **previews** it. Example (not final): `${album}-${artist}-${track}.${ext}`. **Renaming/moving happens only in the dedicated `organize` command, and only with `--apply`.** Every other command is read-only on the library (Phase 5's `quarantine` is the one other `--apply` command, for duplicates after organizing). |
+| 5 | Duplicates | **Whole-file MD5**, but only for files whose byte size matches another file's. Audio-only hashing (ignores tag differences) is a follow-up. **Report only for now** (2026-11-03): no keeper is chosen and nothing is moved until after organizing. |
 | 6 | Risk | **Mid-level.** Dry-run is the default. `--apply` is required to change anything. Nothing is hard-deleted: losing copies move to a quarantine folder. Every move or rename goes into an append-only journal, and `undo` can put files back. |
 | 7 | Tracking and output | Beads is set up after this plan is written. **Every key report the tool produces is a Markdown file** (plus a machine-readable JSON/SQLite copy where it helps). |
 
@@ -69,8 +69,9 @@ after an interruption, and `report` can re-run without touching the disk again.
 | `meta` | no | tags read into the index; `reports/METADATA_REPORT.md` (missing fields, tag vs. filename disagreements) |
 | `names --template T` | no | `reports/NAME_PREVIEW.md` (current name → proposed name, collisions) |
 | `hash` | no | MD5s for size-collision files; resumable, with progress |
-| `dupes` | no | `reports/DUPLICATES_REPORT.md` (groups, keeper, reclaimable space) |
-| `quarantine` | **only with `--apply`** | moves losing duplicates to `<quarantine>/<original relative path>`; journal entry for each move |
+| `dupes` | no | `reports/DUPLICATES_REPORT.md` (groups, every path, reclaimable space; no keeper) |
+| `organize` | **only with `--apply`** | moves files into the templated folder structure; journal entry for each move; collisions left in place and reported |
+| `quarantine` | **only with `--apply`** | after organizing: moves duplicate leftovers to `<quarantine>/<original relative path>`; journal entry for each move |
 | `undo JOURNAL` | **only with `--apply`** | moves everything in that journal back to its original path |
 
 `--dry-run` is implied unless `--apply` is passed. Reports are written to
@@ -85,8 +86,9 @@ after an interruption, and `report` can re-run without touching the disk again.
    SSD (so a move is an instant rename, using no extra space) but outside the
    library root. It keeps the original relative path, so a file's origin is
    obvious even without the journal.
-3. **No overwrites.** If the destination already exists, the run stops before
-   doing anything.
+3. **No overwrites.** If a destination already exists, that file is left where
+   it is and listed in the report. A byte-identical collision is a duplicate
+   for the later duplicates step; a different-content collision needs a human.
 4. **Fail fast:** the library root must exist and be mounted, the
    quarantine folder must be on the same device, and the journal must be
    writable. All three are checked before the first move.
@@ -99,20 +101,22 @@ after an interruption, and `report` can re-run without touching the disk again.
 | **0 Tracer bullet** | `scan` + `meta` on 1 folder, Mac then Pi, end-to-end to a Markdown report | no |
 | **1 Metadata** | full `meta` over the library, field sources, filename fallback parser, METADATA_REPORT | no |
 | **2 Naming preview** | configurable template, sanitising, collision detection, NAME_PREVIEW | no |
-| **3 Duplicates** | resumable `hash`, `dupes` with path-preference keeper rules, DUPLICATES_REPORT | no |
-| **4 Quarantine + undo** | journal, `quarantine --apply`, `undo --apply` | **yes** |
-| **5 Pi deployment** | `scripts/deploy_to_pi.sh` (rsync + venv), long-running jobs under `tmux` | no |
+| **3 Duplicates report** | resumable `hash`, `dupes` → DUPLICATES_REPORT (report only, no keeper) | no |
+| **4 Organize** (`organize_music-dpf`) | journal, `organize --apply` into the templated folder structure, `undo --apply` | **yes** |
+| **5 Address duplicates** (`organize_music-cpc`) | choose keepers among what's left, `quarantine --apply`, `undo --apply` | **yes** |
+| Done | Pi deployment: `scripts/deploy_to_pi.sh` (rsync + venv), long-running jobs under `tmux` | no |
 | Later | web UI front end over the index (`organize_music-3d1`); audio-payload hash (`organize_music-8su`); Chromaprint fingerprint for different encodings (`organize_music-hpg`); actually applying renames | |
 
-Phases 0–3 never change the library. The first phase that can is Phase 4,
-and only after you've reviewed DUPLICATES_REPORT.
+Phases 0–3 never change the library. The first phase that can is Phase 4
+(organize), and only after you've reviewed NAME_PREVIEW and DUPLICATES_REPORT.
+Duplicates are acted on only after organizing (Phase 5).
 
-## Open questions (needed before Phase 3/4, not before Phase 0)
+## Open questions
 
-- **Keeper preference:** which copy wins inside a duplicate group? Suggested
-  default, from highest to lowest priority: an artist folder at the root,
-  then the shortest path, then anything except `ipod_favs` / `OrganizesByGenre` / `torrent`.
-  Please confirm or reorder.
+- **Target folder format** (before Phase 4): e.g. `${artist}/${album}/${track}-${title}.${ext}`.
+  Decide after reading NAME_PREVIEW from Phase 2.
+- **Keeper preference** (before Phase 5 only): which copy stays when duplicates
+  are acted on. Deferred until after organizing.
 - **Quarantine location:** suggested `/path/to/library-parent/_quarantine`
   (same disk, outside `Music/`).
 - **Final name template:** decide after reading NAME_PREVIEW from Phase 2.
