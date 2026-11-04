@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from organize_music.hash_index import HASHES_SCHEMA, HashIndex
 from organize_music.models import (
     FIELD_NAMES,
     Field,
@@ -88,8 +89,10 @@ def _prepare(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA synchronous=NORMAL")
     if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
         conn.execute("DROP TABLE IF EXISTS tracks")
+        conn.execute("DROP TABLE IF EXISTS hashes")
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.execute(_SCHEMA)
+    conn.execute(HASHES_SCHEMA)
 
 
 class IndexDB:
@@ -97,6 +100,7 @@ class IndexDB:
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
+        self.hashes = HashIndex(conn)
 
     @classmethod
     @contextmanager
