@@ -65,10 +65,10 @@ class Field:
 
 @dataclass(frozen=True)
 class FileRecord:
-    path: Path              # relative to the library root
+    path: Path  # relative to the library root
     size: int
     mtime_ns: int
-    ext: str                # lower-case, no dot
+    ext: str  # lower-case, no dot
 
 
 @dataclass(frozen=True)
@@ -84,17 +84,19 @@ class TrackMetadata:
     genre: Field
     duration_seconds: float | None
     bitrate_kbps: int | None
-    error: str | None       # set when the file could not be read
+    error: str | None  # set when the file could not be read
 
 
 # pure
 def parse_filename(stem: str) -> dict[str, str | int]: ...
-def build_metadata(record: FileRecord, raw_tags: dict[str, str], folders: list[str]) -> TrackMetadata: ...
+def build_metadata(record: FileRecord, raw: RawTags) -> TrackMetadata: ...  # Phase 0
+# Phase 1 adds filename/folder fallback via parse_filename
 def render_metadata_report(rows: list[TrackMetadata]) -> str: ...
+
 
 # side effects
 def walk_library(root: Path) -> Iterator[FileRecord]: ...
-def read_raw_tags(path: Path) -> dict[str, str]: ...   # raises TagReadError
+def read_tags(path: Path) -> RawTags: ...  # raises TagReadError
 ```
 
 ## 4. Safety, Edge Cases & Error Handling
