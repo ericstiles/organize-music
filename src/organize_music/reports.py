@@ -6,11 +6,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from organize_music.markdown import NONE_LINE, cell, code
 from organize_music.models import FIELD_NAMES, Source, TrackMetadata
 
 SAMPLE_LIMIT = 50
 TOP_FOLDERS = 15
-NONE_LINE = "_None._"
 
 
 @dataclass(frozen=True)
@@ -19,15 +19,6 @@ class ScanSummary:
     generated_at: datetime
     ext_counts: Mapping[str, int]
     tracks: Sequence[TrackMetadata]
-
-
-def _cell(text: object) -> str:
-    """Make text safe inside a Markdown table cell."""
-    return " ".join(str(text).split()).replace("|", "\\|")
-
-
-def _code(path: Path) -> str:
-    return f"`{_cell(path)}`"
 
 
 def _is_untagged(track: TrackMetadata) -> bool:
@@ -53,7 +44,7 @@ def _totals(summary: ScanSummary) -> list[str]:
 def _extensions(summary: ScanSummary) -> list[str]:
     rows = sorted(summary.ext_counts.items(), key=lambda kv: (-kv[1], kv[0]))
     lines = ["## Files by extension", "", "| Extension | Count |", "|-----------|------:|"]
-    return lines + [f"| {_cell(ext or '(none)')} | {count} |" for ext, count in rows]
+    return lines + [f"| {cell(ext or '(none)')} | {count} |" for ext, count in rows]
 
 
 def _coverage(summary: ScanSummary) -> list[str]:
@@ -83,7 +74,7 @@ def _errors(summary: ScanSummary) -> list[str]:
     if not failed:
         return [*lines, NONE_LINE]
     lines += ["| File | Error |", "|------|-------|"]
-    return lines + [f"| {_code(t.record.path)} | {_cell(t.error)} |" for t in failed]
+    return lines + [f"| {code(t.record.path)} | {cell(t.error)} |" for t in failed]
 
 
 def _untagged_folders(summary: ScanSummary) -> list[str]:
@@ -92,7 +83,7 @@ def _untagged_folders(summary: ScanSummary) -> list[str]:
     if not counts:
         return [*lines, NONE_LINE]
     lines += ["| Folder | Files |", "|--------|------:|"]
-    return lines + [f"| {_code(p)} | {n} |" for p, n in counts.most_common(TOP_FOLDERS)]
+    return lines + [f"| {code(p)} | {n} |" for p, n in counts.most_common(TOP_FOLDERS)]
 
 
 def _untagged_sample(summary: ScanSummary) -> list[str]:
@@ -100,7 +91,7 @@ def _untagged_sample(summary: ScanSummary) -> list[str]:
     lines = [f"## Sample of files missing artist or title (first {SAMPLE_LIMIT})", ""]
     if not untagged:
         return [*lines, NONE_LINE]
-    return lines + [f"- {_code(t.record.path)}" for t in untagged[:SAMPLE_LIMIT]]
+    return lines + [f"- {code(t.record.path)}" for t in untagged[:SAMPLE_LIMIT]]
 
 
 def render_metadata_report(summary: ScanSummary) -> str:
