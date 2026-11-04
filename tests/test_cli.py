@@ -140,3 +140,96 @@ def test_pipeline_progress_is_forwarded_to_stderr(
     meta(library, tmp_path)
 
     assert "2/4 (read 2, cached 0)" in capsys.readouterr().err
+
+
+def hash_cmd(root: Path, tmp_path: Path, *extra: str) -> int:
+    return cli.main(["hash", str(root), "--index", str(tmp_path / "index.db"), *extra])
+
+
+def test_hash_summary_and_read_only(
+    library: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import shutil
+
+    copy = library / "ipod_favs" / "copy.mp3"
+    copy.parent.mkdir()
+    shutil.copyfile(library / "Carbon Leaf" / "Echo Echo" / "01 Learn To Fly.mp3", copy)
+    before = snapshot(library)
+
+    assert hash_cmd(library, tmp_path) == 0
+
+    err = capsys.readouterr().err
+    assert "2 candidate files (hashed 2, cached 0, failed 0, pruned 0)" in err
+    assert "1 groups of byte-identical files" in err
+    assert snapshot(library) == before
+
+
+def test_hash_lists_failures(
+    library: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import shutil
+
+    from organize_music import hash_pipeline
+
+    copy = library / "copy.mp3"
+    shutil.copyfile(library / "Carbon Leaf" / "Echo Echo" / "01 Learn To Fly.mp3", copy)
+
+    def denied(_path: Path) -> str:
+        raise hash_pipeline.HashError("PermissionError: denied")
+
+    monkeypatch.setattr(hash_pipeline, "md5_file", denied)
+
+    hash_cmd(library, tmp_path, "--rehash")
+
+    err = capsys.readouterr().err
+    assert "failed 2" in err
+    assert "  could not hash copy.mp3: PermissionError: denied" in err
+
+
+def test_hash_refuses_index_inside_library(library: Path) -> None:
+    code = cli.main(["hash", str(library), "--index", str(library / "i.db")])
+
+    assert code == 2
+    assert not (library / "i.db").exists()
+
+
+def test_dupes_writes_report_and_is_read_only(
+    library: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import shutil
+
+    copy = library / "ipod_favs" / "copy.mp3"
+    copy.parent.mkdir()
+    shutil.copyfile(library / "Carbon Leaf" / "Echo Echo" / "01 Learn To Fly.mp3", copy)
+    before = snapshot(library)
+    report = tmp_path / "DUPLICATES_REPORT.md"
+
+    code = cli.main(
+        ["dupes", str(library), "--index", str(tmp_path / "i.db"), "--report", str(report)]
+    )
+
+    assert code == 0
+    text = report.read_text()
+    assert "| Groups of byte-identical files | 1 |" in text
+    assert "- `ipod_favs/copy.mp3`" in text
+    assert "1 groups, 1 extra copies" in capsys.readouterr().err
+    assert snapshot(library) == before
+
+
+def test_dupes_refuses_report_inside_library(library: Path, tmp_path: Path) -> None:
+    code = cli.main(
+        [
+            "dupes",
+            str(library),
+            "--index",
+            str(tmp_path / "i.db"),
+            "--report",
+            str(library / "d.md"),
+        ]
+    )
+
+    assert code == 2
+    assert not (library / "d.md").exists()
