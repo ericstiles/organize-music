@@ -10,6 +10,7 @@ set -euo pipefail
 
 PI_HOST="${PI_HOST:?PI_HOST is not set — run 'direnv allow' or export it (see .envrc)}"
 PI_DIR="${PI_DIR:-organize_music}"   # relative to the Pi user's home
+MUSIC_LIB="${MUSIC_LIB:-/media/ets04uga/Extreme/PlaceHereToKeepFromWork/Music}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "==> Checking SSH to ${PI_HOST}"
@@ -23,9 +24,11 @@ rsync -a --delete \
   "${REPO_ROOT}/" "${PI_HOST}:${PI_DIR}/"
 
 echo "==> Installing into ~/${PI_DIR}/.venv on the Pi"
-ssh "${PI_HOST}" bash -s -- "${PI_DIR}" <<'REMOTE'
+ssh "${PI_HOST}" bash -s -- "${PI_DIR}" "${MUSIC_LIB}" <<'REMOTE'
 set -euo pipefail
-cd "$HOME/$1"
+PI_DIR="$1"
+MUSIC_LIB="$2"
+cd "$HOME/$PI_DIR"
 if [ ! -x .venv/bin/python ]; then
   python3 -m venv .venv || { echo "python3-venv missing: sudo apt install python3-venv" >&2; exit 1; }
 fi
@@ -33,10 +36,28 @@ fi
 .venv/bin/pip install -q .
 .venv/bin/organize-music --help >/dev/null
 echo "installed: $(.venv/bin/python -c 'import mutagen; print("mutagen", mutagen.version_string)')"
+
+# Install convenience aliases into ~/.bashrc (idempotent, replaces any prior block)
+BASHRC="$HOME/.bashrc"
+MARKER="# >>> organize_music aliases >>>"
+if grep -qF "$MARKER" "$BASHRC" 2>/dev/null; then
+  sed -i '/# >>> organize_music aliases >>>/,/# <<< organize_music aliases <<</d' "$BASHRC"
+fi
+{
+  echo "$MARKER"
+  echo "export MUSIC_LIB=\"$MUSIC_LIB\""
+  echo "alias om='\$HOME/$PI_DIR/.venv/bin/organize-music'"
+  echo "alias om-meta='om meta \"\$MUSIC_LIB\" --report \$HOME/$PI_DIR/reports/METADATA_REPORT.md'"
+  echo "alias om-dupes='om dupes \"\$MUSIC_LIB\" --report \$HOME/$PI_DIR/reports/DUPLICATES_REPORT.md'"
+  echo "# <<< organize_music aliases <<<"
+} >> "$BASHRC"
+echo "aliases installed in $BASHRC (reload: source ~/.bashrc)"
 REMOTE
 
 echo "==> Done. Run on the Pi, e.g.:"
 echo "    ssh ${PI_HOST}"
+echo "    source ~/.bashrc      # load aliases (first time only)"
 echo "    tmux new -s music"
-echo "    ~/${PI_DIR}/.venv/bin/organize-music meta ${MUSIC_LIB:-/media/ets04uga/Extreme/PlaceHereToKeepFromWork/Music} \\"
-echo "        --report ~/${PI_DIR}/reports/METADATA_REPORT.md"
+echo "    om --help             # alias for ~/${PI_DIR}/.venv/bin/organize-music"
+echo "    om-meta               # meta scan of \$MUSIC_LIB -> reports/METADATA_REPORT.md"
+echo "    om-dupes              # duplicates report"
