@@ -2,11 +2,13 @@
 # Copy this repo to the Pi and install it into a venv there.
 # Touches only $PI_DIR on the Pi; never the music library.
 #
-# Usage: scripts/deploy_to_pi.sh            (defaults below)
-#        PI_HOST=user@pi-host PI_DIR=organize_music scripts/deploy_to_pi.sh
+# PI_HOST and PI_DIR come from the environment. They are set in .envrc
+# (loaded by direnv after `direnv allow`). Without direnv, export them first:
+#
+#   PI_HOST=user@pi-host PI_DIR=organize_music scripts/deploy_to_pi.sh
 set -euo pipefail
 
-PI_HOST="${PI_HOST:-user@pi-host}"
+PI_HOST="${PI_HOST:?PI_HOST is not set — run 'direnv allow' or export it (see .envrc)}"
 PI_DIR="${PI_DIR:-organize_music}"   # relative to the Pi user's home
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -36,5 +38,5 @@ REMOTE
 echo "==> Done. Run on the Pi, e.g.:"
 echo "    ssh ${PI_HOST}"
 echo "    tmux new -s music"
-echo "    ~/${PI_DIR}/.venv/bin/organize-music meta /path/to/library-parent/Music \\"
+echo "    ~/${PI_DIR}/.venv/bin/organize-music meta ${MUSIC_LIB:-/path/to/library-parent/Music} \\"
 echo "        --report ~/${PI_DIR}/reports/METADATA_REPORT.md"
