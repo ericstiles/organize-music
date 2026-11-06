@@ -2,11 +2,13 @@
 # Copy this repo to the Pi and install it into a venv there.
 # Touches only $PI_DIR on the Pi; never the music library.
 #
-# Usage: scripts/deploy_to_pi.sh            (defaults below)
-#        PI_HOST=ets04uga@192.168.1.222 PI_DIR=organize_music scripts/deploy_to_pi.sh
+# PI_HOST and PI_DIR come from the environment. They are set in .envrc
+# (loaded by direnv after `direnv allow`). Without direnv, export them first:
+#
+#   PI_HOST=ets04uga@192.168.1.222 PI_DIR=organize_music scripts/deploy_to_pi.sh
 set -euo pipefail
 
-PI_HOST="${PI_HOST:-ets04uga@192.168.1.222}"
+PI_HOST="${PI_HOST:?PI_HOST is not set — run 'direnv allow' or export it (see .envrc)}"
 PI_DIR="${PI_DIR:-organize_music}"   # relative to the Pi user's home
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -36,5 +38,5 @@ REMOTE
 echo "==> Done. Run on the Pi, e.g.:"
 echo "    ssh ${PI_HOST}"
 echo "    tmux new -s music"
-echo "    ~/${PI_DIR}/.venv/bin/organize-music meta /media/ets04uga/Extreme/PlaceHereToKeepFromWork/Music \\"
+echo "    ~/${PI_DIR}/.venv/bin/organize-music meta ${MUSIC_LIB:-/media/ets04uga/Extreme/PlaceHereToKeepFromWork/Music} \\"
 echo "        --report ~/${PI_DIR}/reports/METADATA_REPORT.md"
