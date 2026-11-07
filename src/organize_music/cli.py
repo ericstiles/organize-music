@@ -12,10 +12,10 @@ from organize_music.dupes_report import DupesSummary, build_groups, render_dupli
 from organize_music.hash_pipeline import collect_hashes
 from organize_music.index_db import IndexDB
 from organize_music.metadata import interpret, is_audio
-from organize_music.pipeline import collect_metadata, read_result
+from organize_music.pipeline import collect_metadata, read_all, read_result
 from organize_music.reports import ScanSummary, render_metadata_report
 from organize_music.scanner import LibraryNotFoundError, single_record, walk_library
-from organize_music.tag_view import render_tags
+from organize_music.tag_view import render_raw, render_tags
 
 DEFAULT_REPORT = Path("reports/METADATA_REPORT.md")
 DEFAULT_DUPES_REPORT = Path("reports/DUPLICATES_REPORT.md")
@@ -119,7 +119,7 @@ def run_dupes(root: Path, report: Path, index: Path) -> int:
     return EXIT_OK
 
 
-def run_tags(path: Path) -> int:
+def run_tags(path: Path, raw: bool = False) -> int:
     path = path.resolve()
     if path.is_dir():
         root = path
@@ -131,7 +131,10 @@ def run_tags(path: Path) -> int:
         raise UsageError(f"path does not exist: {path}")
     if not records:
         raise UsageError(f"no audio files found: {path}")
-    blocks = [render_tags(interpret(record, read_result(root, record))) for record in records]
+    if raw:
+        blocks = [render_raw(str(record.path), read_all(root, record)) for record in records]
+    else:
+        blocks = [render_tags(interpret(record, read_result(root, record))) for record in records]
     print("\n\n".join(blocks))
     return EXIT_OK
 
@@ -157,7 +160,8 @@ def _parser() -> argparse.ArgumentParser:
     dup.set_defaults(run=lambda a, index: run_dupes(a.root, a.report, index))
     tags = sub.add_parser("tags", help="print tag values for a file or directory to stdout")
     tags.add_argument("path", type=Path, help="an audio file, or a directory to scan")
-    tags.set_defaults(index=None, run=lambda a, index: run_tags(a.path))
+    tags.add_argument("--raw", action="store_true", help="dump every stored tag, uninterpreted")
+    tags.set_defaults(index=None, run=lambda a, index: run_tags(a.path, a.raw))
     return parser
 
 

@@ -248,17 +248,18 @@ def test_tags_prints_one_files_values_to_stdout(
 
     out = capsys.readouterr().out
     assert "01 Learn To Fly.mp3" in out
-    assert "Carbon Leaf  (tag)" in out
-    assert "Learn To Fly  (tag)" in out
-    assert "Rock  (tag)" in out
+    assert "Carbon Leaf" in out
+    assert "Learn To Fly" in out
+    assert "Rock" in out
+    assert "(tag)" not in out  # embedded tags are shown without a provenance label
 
 
 def test_tags_scans_a_directory(library: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert tags_cmd(library) == 0
 
     out = capsys.readouterr().out
-    assert "Learn To Fly  (tag)" in out  # from Carbon Leaf
-    assert "Takeover  (tag)" in out  # from Jay-Z
+    assert "Learn To Fly" in out  # from Carbon Leaf
+    assert "Takeover" in out  # from Jay-Z
 
 
 def test_tags_is_read_only(library: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -283,3 +284,37 @@ def test_tags_unreadable_file_reports_error_not_crash(
 
     out = capsys.readouterr().out
     assert "broken.mp3" in out
+
+
+def test_tags_raw_dumps_tags_the_curated_view_omits(
+    library: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import mutagen
+
+    track = library / "Carbon Leaf" / "Echo Echo" / "01 Learn To Fly.mp3"
+    audio = mutagen.File(track, easy=True)
+    audio["composer"] = "Barry Privett"  # not one of the 8 curated fields
+    audio.save()
+
+    assert cli.main(["tags", "--raw", str(track)]) == 0
+
+    out = capsys.readouterr().out
+    assert "Barry Privett" in out  # raw surfaces every stored tag, not just the curated 8
+    assert "(tag)" not in out  # raw mode carries no provenance labels
+
+
+def test_tags_raw_summarises_embedded_art_as_bytes(
+    library: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from mutagen.id3 import APIC, ID3
+
+    track = library / "Carbon Leaf" / "Echo Echo" / "01 Learn To Fly.mp3"
+    id3 = ID3(track)
+    id3.add(APIC(encoding=3, mime="image/jpeg", type=3, desc="", data=b"\xff\xd8\xff" * 20))
+    id3.save()
+
+    assert cli.main(["tags", "--raw", str(track)]) == 0
+
+    out = capsys.readouterr().out
+    assert "APIC" in out  # the art frame is listed
+    assert "bytes" in out  # ...but its binary payload is summarised, not dumped
