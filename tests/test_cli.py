@@ -114,19 +114,49 @@ def test_ctrl_c_exits_130_and_keeps_progress(
     assert not (tmp_path / "r.md").exists()
 
 
-def test_default_index_honours_xdg_data_home(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+def test_meta_reads_root_index_and_report_from_config(library: Path, tmp_path: Path) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"library: {library}\nindex: {tmp_path / 'i.db'}\nreports: {tmp_path / 'out'}\n",
+        encoding="utf-8",
+    )
 
-    assert cli.default_index_path() == tmp_path / "xdg" / "organize_music" / "index.db"
+    assert cli.main(["meta", "--config", str(config)]) == 0
+
+    assert (tmp_path / "out" / "METADATA_REPORT.md").read_text().startswith("# Metadata Report")
+    assert (tmp_path / "i.db").exists()
 
 
-def test_default_index_falls_back_to_home(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+def test_cli_flags_override_config(library: Path, tmp_path: Path) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"library: {tmp_path / 'wrong'}\nindex: {tmp_path / 'c.db'}\n", encoding="utf-8"
+    )
 
-    expected = Path.home() / ".local" / "share" / "organize_music" / "index.db"
-    assert cli.default_index_path() == expected
+    code = cli.main(
+        [
+            "meta",
+            str(library),
+            "--config",
+            str(config),
+            "--index",
+            str(tmp_path / "flag.db"),
+            "--report",
+            str(tmp_path / "r.md"),
+        ]
+    )
+
+    assert code == 0
+    assert (tmp_path / "flag.db").exists()
+    assert not (tmp_path / "c.db").exists()
+
+
+def test_invalid_config_exits_nonzero(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text("bogus_key: 1\n", encoding="utf-8")
+
+    assert cli.main(["meta", "--config", str(config)]) == 2
+    assert "unknown config keys" in capsys.readouterr().err
 
 
 def test_pipeline_progress_is_forwarded_to_stderr(
