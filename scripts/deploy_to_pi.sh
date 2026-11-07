@@ -33,7 +33,10 @@ if [ ! -x .venv/bin/python ]; then
   python3 -m venv .venv || { echo "python3-venv missing: sudo apt install python3-venv" >&2; exit 1; }
 fi
 .venv/bin/pip install -q --upgrade pip
-.venv/bin/pip install -q .
+# Editable install: rsync'd source is always live, and deps (mutagen, pyyaml) are
+# resolved. A plain `pip install .` is a no-op when the version is unchanged, which
+# silently ships stale code and skips new dependencies.
+.venv/bin/pip install -q -e .
 .venv/bin/organize-music --help >/dev/null
 echo "installed: $(.venv/bin/python -c 'import mutagen; print("mutagen", mutagen.version_string)')"
 
