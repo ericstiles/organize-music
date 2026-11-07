@@ -46,6 +46,19 @@ class RawTags:
 
 
 @dataclass(frozen=True)
+class RawTagDump:
+    """Every stored tag as (key, value) pairs in file order, plus audio info.
+
+    Unlike RawTags, this keeps all keys and all values from the non-"easy"
+    interface (composer, comments, album art, multi-values), for `tags --raw`.
+    """
+
+    items: tuple[tuple[str, str], ...]
+    duration_seconds: float | None
+    bitrate_kbps: int | None
+
+
+@dataclass(frozen=True)
 class ReadFailure:
     """A file that could not be parsed as audio."""
 

@@ -3,8 +3,16 @@
 from pathlib import Path
 
 from organize_music.metadata import error_metadata
-from organize_music.models import MISSING, Field, FileRecord, Source, TrackMetadata
-from organize_music.tag_view import render_tags
+from organize_music.models import (
+    MISSING,
+    Field,
+    FileRecord,
+    RawTagDump,
+    ReadFailure,
+    Source,
+    TrackMetadata,
+)
+from organize_music.tag_view import render_raw, render_tags
 
 
 def record(name: str = "Zammuto/Zammuto/01 Yay.mp3") -> FileRecord:
@@ -37,7 +45,7 @@ def test_render_shows_the_path_header() -> None:
     assert text.splitlines()[0] == "Zammuto/Zammuto/01 Yay.mp3"
 
 
-def test_render_shows_tag_values_with_their_source() -> None:
+def test_render_shows_tag_values_without_a_tag_label() -> None:
     text = render_tags(
         track(
             artist=Field("Zammuto", Source.TAG),
@@ -46,9 +54,10 @@ def test_render_shows_tag_values_with_their_source() -> None:
         )
     )
 
-    assert "Zammuto  (tag)" in text
-    assert "Yay  (tag)" in text
-    assert "2012  (tag)" in text
+    assert "Zammuto" in text
+    assert "Yay" in text
+    assert "2012" in text
+    assert "(tag)" not in text  # a plain embedded tag carries no provenance label
 
 
 def test_render_marks_missing_fields() -> None:
@@ -83,3 +92,26 @@ def test_error_track_renders_an_error_line_and_no_fields() -> None:
     assert "broken.mp3" in text
     assert "unrecognised audio format" in text
     assert "(missing)" not in text  # an unreadable file reports the error, not 8 blanks
+
+
+def test_render_raw_lists_every_pair_without_provenance() -> None:
+    dump = RawTagDump(
+        items=(("TPE1", "Zammuto"), ("TXXX:ISRC", "US-ABC-12")),
+        duration_seconds=219.0,
+        bitrate_kbps=160,
+    )
+
+    text = render_raw("01 Yay.mp3", dump)
+
+    assert text.splitlines()[0] == "01 Yay.mp3"
+    assert "TPE1" in text and "Zammuto" in text
+    assert "TXXX:ISRC" in text and "US-ABC-12" in text  # a non-curated tag is still shown
+    assert "219 s" in text and "160 kbps" in text
+    assert "(tag)" not in text  # raw mode never labels provenance
+
+
+def test_render_raw_reports_a_read_failure() -> None:
+    text = render_raw("broken.mp3", ReadFailure(error="unrecognised audio format"))
+
+    assert "broken.mp3" in text
+    assert "unrecognised audio format" in text

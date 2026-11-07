@@ -6,8 +6,8 @@ from pathlib import Path
 
 from organize_music.index_db import IndexDB
 from organize_music.metadata import interpret, is_audio
-from organize_music.models import FileRecord, ReadFailure, ReadResult, TrackMetadata
-from organize_music.tag_reader import TagReadError, read_tags
+from organize_music.models import FileRecord, RawTagDump, ReadFailure, ReadResult, TrackMetadata
+from organize_music.tag_reader import TagReadError, read_all_tags, read_tags
 
 COMMIT_EVERY = 500
 PROGRESS_EVERY = 1000
@@ -25,6 +25,14 @@ def read_result(root: Path, record: FileRecord) -> ReadResult:
     """Read one file's tags, turning a parse failure into a ReadFailure."""
     try:
         return read_tags(root / record.path)
+    except TagReadError as exc:
+        return ReadFailure(error=str(exc))
+
+
+def read_all(root: Path, record: FileRecord) -> RawTagDump | ReadFailure:
+    """Read one file's full raw tag set, turning a parse failure into a ReadFailure."""
+    try:
+        return read_all_tags(root / record.path)
     except TagReadError as exc:
         return ReadFailure(error=str(exc))
 

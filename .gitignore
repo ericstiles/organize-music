@@ -38,3 +38,6 @@ reports/
 *.egg-info/
 build/
 dist/
+
+# Local-only Claude Code hook scripts
+.claude/hooks/
