@@ -35,6 +35,22 @@ def _collect(root: Path) -> list[FileRecord]:
     return records
 
 
+def single_record(path: Path) -> FileRecord:
+    """Build a FileRecord for one file, its path relative to its own parent.
+
+    For reading a lone file (e.g. `tags <file>`) without walking a library.
+    """
+    if not path.is_file():
+        raise LibraryNotFoundError(f"not a file: {path}")
+    stat = path.stat(follow_symlinks=False)
+    return FileRecord(
+        path=Path(path.name),
+        size=stat.st_size,
+        mtime_ns=stat.st_mtime_ns,
+        ext=path.suffix[1:].lower(),
+    )
+
+
 def walk_library(root: Path) -> Iterator[FileRecord]:
     """Yield every file under root, sorted by relative path.
 
