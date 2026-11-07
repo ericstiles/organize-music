@@ -1,0 +1,33 @@
+# organize-music configuration. Copy to one of these locations:
+#   $XDG_CONFIG_HOME/organize_music/config.yaml   (usually ~/.config/organize_music/config.yaml)
+# or pass it explicitly:  organize-music meta --config /path/to/config.yaml
+#
+# Every setting is optional; anything omitted uses the built-in default shown here.
+# CLI flags (--index, --report, and the root argument) override the file.
+# The tool never writes this file.
+
+# Root of the music library to scan. Also the default `root` when none is given.
+library: /media/ets04uga/Extreme/PlaceHereToKeepFromWork/Music
+
+# SQLite index (cache of tags and hashes). Must be OUTSIDE the library.
+index: ~/organize_music/state/index.db
+
+# Directory where Markdown reports are written. Must be OUTSIDE the library.
+reports: ~/organize_music/reports
+
+# Where duplicate leftovers are moved, later, by the organize/quarantine steps.
+# Same disk as the library but outside it, so moves are instant. Must be OUTSIDE the library.
+quarantine: /media/ets04uga/Extreme/PlaceHereToKeepFromWork/_quarantine
+
+# Target layout for the future `organize` step (preview only until then).
+# Placeholders: ${artist} ${album} ${title} ${track} ${ext}
+folder_format: "${artist}/${album}/${track}-${title}.${ext}"
+
+# Top-level folders treated as collections, not artists: skipped when guessing
+# artist/album from folder names (these held copies, not one artist each).
+skip_folders:
+  - Music2
+  - music
+  - OrganizesByGenre
+  - ipod_favs
+  - osx_sd_card_a_to_b

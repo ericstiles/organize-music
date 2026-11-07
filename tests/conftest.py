@@ -9,6 +9,14 @@ import pytest
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
+@pytest.fixture(autouse=True)
+def isolate_config(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Point config discovery at an empty dir so tests never read a real config.yaml."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg")))
+
+
 def make_track(dest: Path, source: str, tags: dict[str, str]) -> Path:
     """Copy a silent fixture to dest and apply easy-style tags."""
     dest.parent.mkdir(parents=True, exist_ok=True)
