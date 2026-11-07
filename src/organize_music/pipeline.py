@@ -21,7 +21,8 @@ class MetaRun:
     pruned: int
 
 
-def _read_one(root: Path, record: FileRecord) -> ReadResult:
+def read_result(root: Path, record: FileRecord) -> ReadResult:
+    """Read one file's tags, turning a parse failure into a ReadFailure."""
     try:
         return read_tags(root / record.path)
     except TagReadError as exc:
@@ -46,7 +47,7 @@ def collect_metadata(
     for index, record in enumerate(audio, start=1):
         result = None if rescan else db.get(root, record)
         if result is None:
-            result = _read_one(root, record)
+            result = read_result(root, record)
             read += 1
         else:
             cached += 1

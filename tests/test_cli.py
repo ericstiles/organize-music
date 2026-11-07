@@ -233,3 +233,53 @@ def test_dupes_refuses_report_inside_library(library: Path, tmp_path: Path) -> N
 
     assert code == 2
     assert not (library / "d.md").exists()
+
+
+def tags_cmd(path: Path) -> int:
+    return cli.main(["tags", str(path)])
+
+
+def test_tags_prints_one_files_values_to_stdout(
+    library: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    track = library / "Carbon Leaf" / "Echo Echo" / "01 Learn To Fly.mp3"
+
+    assert tags_cmd(track) == 0
+
+    out = capsys.readouterr().out
+    assert "01 Learn To Fly.mp3" in out
+    assert "Carbon Leaf  (tag)" in out
+    assert "Learn To Fly  (tag)" in out
+    assert "Rock  (tag)" in out
+
+
+def test_tags_scans_a_directory(library: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert tags_cmd(library) == 0
+
+    out = capsys.readouterr().out
+    assert "Learn To Fly  (tag)" in out  # from Carbon Leaf
+    assert "Takeover  (tag)" in out  # from Jay-Z
+
+
+def test_tags_is_read_only(library: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    before = snapshot(library)
+
+    tags_cmd(library)
+
+    assert snapshot(library) == before
+
+
+def test_tags_missing_path_exits_nonzero(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert tags_cmd(tmp_path / "nope.mp3") == 2
+    assert "does not exist" in capsys.readouterr().err
+
+
+def test_tags_unreadable_file_reports_error_not_crash(
+    library: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert tags_cmd(library / "broken.mp3") == 0
+
+    out = capsys.readouterr().out
+    assert "broken.mp3" in out
