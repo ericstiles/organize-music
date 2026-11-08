@@ -370,3 +370,19 @@ def test_meta_applies_skip_folders_from_config(library: Path, tmp_path: Path) ->
     # With Music2 skipped, the file has no artist and lands in the missing sample.
     text = (tmp_path / "out" / "METADATA_REPORT.md").read_text()
     assert "Music2/SomeBand/99 Untagged.mp3" in text
+
+
+def test_tags_dir_without_audio_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    only_art = tmp_path / "art"
+    only_art.mkdir()
+    (only_art / "cover.jpg").write_bytes(b"\xff\xd8jpeg")
+
+    assert cli.main(["tags", str(only_art)]) == 2
+    assert "no audio files" in capsys.readouterr().err
+
+
+def test_tags_raw_on_unreadable_file_reports_error(
+    library: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(["tags", str(library / "broken.mp3"), "--raw"]) == 0
+    assert "broken.mp3" in capsys.readouterr().out

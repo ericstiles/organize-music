@@ -49,3 +49,19 @@ def test_walk_fails_fast_when_root_is_a_file(tmp_path: Path) -> None:
 
     with pytest.raises(LibraryNotFoundError, match="not a directory"):
         list(walk_library(file_root))
+
+
+def test_single_record_relative_to_parent(library: Path) -> None:
+    from organize_music.scanner import single_record
+
+    record = single_record(library / "01 Billie Jean.MP3")
+
+    assert str(record.path) == "01 Billie Jean.MP3"
+    assert record.ext == "mp3"
+
+
+def test_single_record_rejects_non_file(library: Path) -> None:
+    from organize_music.scanner import single_record
+
+    with pytest.raises(LibraryNotFoundError, match="not a file"):
+        single_record(library / "Carbon Leaf")  # a directory

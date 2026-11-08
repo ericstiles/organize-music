@@ -119,3 +119,14 @@ def test_index_must_be_outside_library(tmp_path: Path) -> None:
 def test_malformed_yaml_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="could not parse"):
         load_config(write(tmp_path, "key: [unclosed\n"))
+
+
+def test_empty_file_yields_defaults(tmp_path: Path) -> None:
+    config = load_config(write(tmp_path, ""))
+
+    assert config.library == Path(DEFAULTS["library"])
+
+
+def test_non_string_path_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="library must be a path string"):
+        load_config(write(tmp_path, "library: 123\n"))
