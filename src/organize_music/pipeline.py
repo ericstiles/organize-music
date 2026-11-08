@@ -43,6 +43,7 @@ def collect_metadata(
     db: IndexDB,
     say: Callable[[str], None],
     rescan: bool = False,
+    skip_folders: frozenset[str] = frozenset(),
 ) -> MetaRun:
     """Return metadata for every audio record, reading tags from disk only when needed.
 
@@ -59,7 +60,7 @@ def collect_metadata(
             read += 1
         else:
             cached += 1
-        track = interpret(record, result)
+        track = interpret(record, result, skip_folders)
         db.upsert(root, track, result)
         tracks.append(track)
         if index % COMMIT_EVERY == 0:

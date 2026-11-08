@@ -63,14 +63,16 @@ def _fallback(field: Field, name: str, from_file: Parsed, from_folders: Parsed) 
     return field
 
 
-def build_metadata(record: FileRecord, raw: RawTags) -> TrackMetadata:
+def build_metadata(
+    record: FileRecord, raw: RawTags, skip_folders: frozenset[str] = frozenset()
+) -> TrackMetadata:
     """Interpret raw tags, filling gaps from the filename then the folders.
 
     Values that can't be found or parsed are MISSING, never guessed.
     """
     tags = raw.tags
     from_file = parse_filename(record.path.stem)
-    from_folders = parse_folders(record.path)
+    from_folders = parse_folders(record.path, skip_folders)
 
     def field(name: str, key: str, parse: Callable[[str | None], str | int | None]) -> Field:
         return _fallback(_tag_field(tags, key, parse), name, from_file, from_folders)
@@ -109,8 +111,10 @@ def error_metadata(record: FileRecord, error: str) -> TrackMetadata:
     )
 
 
-def interpret(record: FileRecord, result: ReadResult) -> TrackMetadata:
+def interpret(
+    record: FileRecord, result: ReadResult, skip_folders: frozenset[str] = frozenset()
+) -> TrackMetadata:
     """Turn a raw read (or a read failure) into TrackMetadata."""
     if isinstance(result, ReadFailure):
         return error_metadata(record, result.error)
-    return build_metadata(record, result)
+    return build_metadata(record, result, skip_folders)

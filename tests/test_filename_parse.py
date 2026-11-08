@@ -96,3 +96,16 @@ def test_ambiguous_input_is_not_guessed(stem: str, expected: dict[str, object]) 
 )
 def test_parse_folders(path: str, expected: dict[str, object]) -> None:
     assert parse_folders(Path(path)) == expected
+
+
+def test_parse_folders_skips_collection_folders() -> None:
+    skip = frozenset({"Music2", "ipod_favs"})
+
+    # Top-level folder is a collection: don't guess artist/album from it.
+    assert parse_folders(Path("Music2/Candlebox/01.mp3"), skip) == {}
+    assert parse_folders(Path("ipod_favs/Queen/01.mp3"), skip) == {}
+    # A real artist folder is unaffected.
+    assert parse_folders(Path("Queen/Queen II/01.mp3"), skip) == {
+        "artist": "Queen",
+        "album": "Queen II",
+    }

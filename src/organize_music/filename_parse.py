@@ -75,10 +75,14 @@ def _split_album_year(name: str) -> Parsed:
     return {"album": name}
 
 
-def parse_folders(relative_path: Path) -> Parsed:
-    """Artist/album/year from an Artist/Album/file layout; nothing for any other depth."""
+def parse_folders(relative_path: Path, skip_folders: frozenset[str] = frozenset()) -> Parsed:
+    """Artist/album/year from an Artist/Album/file layout; nothing for any other depth.
+
+    A top-level folder in skip_folders is a collection, not an artist, so its
+    files get no artist/album guess from the folder names.
+    """
     folders = relative_path.parts[:-1]
-    if len(folders) != _ARTIST_ALBUM_DEPTH:
+    if len(folders) != _ARTIST_ALBUM_DEPTH or folders[0] in skip_folders:
         return {}
     artist, album_dir = folders
     return {"artist": artist, **_split_album_year(album_dir)}

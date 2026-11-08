@@ -7,6 +7,7 @@ import pytest
 
 from organize_music import pipeline
 from organize_music.index_db import IndexDB
+from organize_music.models import Source
 from organize_music.scanner import walk_library
 
 
@@ -86,3 +87,21 @@ def test_progress_messages(library: Path, db: IndexDB, monkeypatch: pytest.Monke
     pipeline.collect_metadata(library, list(walk_library(library)), db, messages.append)
 
     assert "  2/4 (read 2, cached 0)" in messages
+
+
+def test_collect_metadata_passes_skip_folders(library: Path, db: IndexDB) -> None:
+    import shutil
+
+    skip_dir = library / "Music2" / "Carbon Leaf"
+    skip_dir.mkdir(parents=True)
+    shutil.copyfile(
+        library / "Carbon Leaf" / "Echo Echo" / "01 Learn To Fly.mp3", skip_dir / "99 Untagged.mp3"
+    )
+    records = list(walk_library(library))
+
+    run = pipeline.collect_metadata(
+        library, records, db, lambda _m: None, skip_folders=frozenset({"Music2"})
+    )
+
+    skipped = next(t for t in run.tracks if t.record.path.parts[0] == "Music2")
+    assert skipped.artist.source is not Source.FOLDER

@@ -115,3 +115,24 @@ def test_interpret_dispatches_on_read_result() -> None:
     assert ok.artist.value == "X"
     assert failed.error == "bad frame"
     assert failed.title.source is Source.MISSING
+
+
+def test_build_metadata_honours_skip_folders() -> None:
+    skip = frozenset({"Music2"})
+    rec = FileRecord(path=Path("Music2/Candlebox/01 Far Behind.mp3"), size=1, mtime_ns=1, ext="mp3")
+
+    meta = build_metadata(rec, raw(), skip_folders=skip)
+
+    # Artist/album NOT taken from the collection folder; title still from filename.
+    assert meta.artist.source is Source.MISSING
+    assert meta.album.source is Source.MISSING
+    assert meta.title == Field("Far Behind", Source.FILENAME)
+
+
+def test_interpret_threads_skip_folders() -> None:
+    skip = frozenset({"Music2"})
+    rec = FileRecord(path=Path("Music2/Candlebox/01 Far Behind.mp3"), size=1, mtime_ns=1, ext="mp3")
+
+    meta = interpret(rec, raw(), skip_folders=skip)
+
+    assert meta.artist.source is Source.MISSING
