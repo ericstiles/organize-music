@@ -111,12 +111,38 @@ Phases 0–3 never change the library. The first phase that can is Phase 4
 (organize), and only after you've reviewed NAME_PREVIEW and DUPLICATES_REPORT.
 Duplicates are acted on only after organizing (Phase 5).
 
+## Naming rules (decided 2026-11-07)
+
+How `naming.py` turns a `TrackMetadata` field into a path segment, for the
+`names` preview (`organize_music-2k2`) and `organize` (`organize_music-dpf`):
+
+1. **Spaces → underscores.** Every run of whitespace in a tag value becomes a
+   single `_`. The whole tree is underscore-separated (`Carbon_Leaf/Echo_Echo/01-Learn_To_Fly.mp3`).
+   This is the same transform as `organize_music-cvf`, so the organize format
+   subsumes it.
+2. **Illegal characters → underscore.** The drive is exFAT, which forbids
+   `/ \ : * ? " < > |` and control chars (`0x00`–`0x1F`). Each is replaced with
+   `_` (e.g. `AC/DC` → `AC_DC`), so a `/` in a tag never creates a stray folder.
+3. **Tidy up:** collapse repeated `_`, then strip leading/trailing `_`, `.` and
+   spaces from each segment (exFAT dislikes trailing dots/spaces). Cap each
+   segment and the total path length.
+4. **A field that is MISSING** leaves its placeholder empty; the segment is
+   still sanitised (no doubled separators, no empty folder).
+
+### Collisions (two files → one target path), decided earlier
+
+- The `names` preview lists every collision before any move.
+- At organize time nothing is overwritten: **byte-identical** (same MD5) copies
+  are left in place and recorded for the duplicates step; **different-content**
+  collisions are left in place and reported for a human. No automatic `(2)`
+  suffix — the tool never invents a name.
+
 ## Open questions
 
-- **Target folder format** (before Phase 4): e.g. `${artist}/${album}/${track}-${title}.${ext}`.
-  Decide after reading NAME_PREVIEW from Phase 2.
+- **Target folder format** (before Phase 4): default `${artist}/${album}/${track}-${title}.${ext}`
+  in config. Sanitising rules are decided (see "Naming rules" above); the exact
+  template string is confirmed after reading NAME_PREVIEW from Phase 2.
 - **Keeper preference** (before Phase 5 only): which copy stays when duplicates
   are acted on. Deferred until after organizing.
 - **Quarantine location:** suggested `/path/to/library-parent/_quarantine`
   (same disk, outside `Music/`).
-- **Final name template:** decide after reading NAME_PREVIEW from Phase 2.
