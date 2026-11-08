@@ -348,3 +348,25 @@ def test_tags_raw_summarises_embedded_art_as_bytes(
     out = capsys.readouterr().out
     assert "APIC" in out  # the art frame is listed
     assert "bytes" in out  # ...but its binary payload is summarised, not dumped
+
+
+def test_meta_applies_skip_folders_from_config(library: Path, tmp_path: Path) -> None:
+    import shutil
+
+    # An untagged file under a collection folder: its only possible artist is the
+    # folder name "Music2", which skip_folders must suppress.
+    skip_dir = library / "Music2" / "SomeBand"
+    skip_dir.mkdir(parents=True)
+    shutil.copyfile(library / "01 Billie Jean.MP3", skip_dir / "99 Untagged.mp3")
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"library: {library}\nindex: {tmp_path / 'i.db'}\nreports: {tmp_path / 'out'}\n"
+        "skip_folders: [Music2]\n",
+        encoding="utf-8",
+    )
+
+    assert cli.main(["meta", "--config", str(config)]) == 0
+
+    # With Music2 skipped, the file has no artist and lands in the missing sample.
+    text = (tmp_path / "out" / "METADATA_REPORT.md").read_text()
+    assert "Music2/SomeBand/99 Untagged.mp3" in text

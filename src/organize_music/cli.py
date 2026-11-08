@@ -43,14 +43,16 @@ def _ensure_outside(root: Path, path: Path, what: str) -> None:
         raise UsageError(f"{what} must be outside the library: {path}")
 
 
-def run_meta(root: Path, report: Path, index: Path, rescan: bool) -> int:
+def run_meta(
+    root: Path, report: Path, index: Path, rescan: bool, skip_folders: frozenset[str]
+) -> int:
     root = root.resolve()
     _ensure_outside(root, report, "report")
     _ensure_outside(root, index, "index")
     records = list(walk_library(root))
     _say(f"Found {len(records)} files under {root} (index: {index})")
     with IndexDB.open(index) as db:
-        run = collect_metadata(root, records, db, _say, rescan=rescan)
+        run = collect_metadata(root, records, db, _say, rescan=rescan, skip_folders=skip_folders)
     summary = ScanSummary(
         root=root,
         generated_at=datetime.now(),
@@ -161,7 +163,11 @@ def _parser() -> argparse.ArgumentParser:
     meta.add_argument("--rescan", action="store_true", help="ignore the index; re-read all tags")
     meta.set_defaults(
         run=lambda a, c: run_meta(
-            _root(a, c), _report(a, c, "METADATA_REPORT.md"), _index(a, c), a.rescan
+            _root(a, c),
+            _report(a, c, "METADATA_REPORT.md"),
+            _index(a, c),
+            a.rescan,
+            frozenset(c.skip_folders),
         )
     )
 
