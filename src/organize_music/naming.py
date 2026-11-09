@@ -2,7 +2,22 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
+import re
+
+
+def sanitize(value: str | None) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    # spaces -> underscore
+    text = re.sub(r"\s+", "_", text)
+    # illegal chars -> underscore
+    text = re.sub(r'[/\\:*?"<>|\x00-\x1f]', "_", text)
+    # collapse repeated underscores
+    text = re.sub(r"_+", "_", text)
+    # strip leading/trailing _, ., spaces
+    text = text.strip("_. ")
+    return text
 
 from organize_music.models import TrackMetadata
 
