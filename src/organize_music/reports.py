@@ -94,7 +94,33 @@ def _untagged_sample(summary: ScanSummary) -> list[str]:
     return lines + [f"- {code(t.record.path)}" for t in untagged[:SAMPLE_LIMIT]]
 
 
-def render_metadata_report(summary: ScanSummary) -> str:
+@dataclass(frozen=True)
+class NamePreviewSummary:
+    root: Path
+    generated_at: datetime
+    template: str
+    rows: Sequence[tuple[TrackMetadata, str]]
+    collisions: Mapping[str, list[tuple[str, str]]]
+
+
+def render_name_preview_report(summary: NamePreviewSummary) -> str:
+    lines = [
+        "# Name Preview",
+        "",
+        f"- Library: `{summary.root}`",
+        f"- Generated: {summary.generated_at:%Y-%m-%d %H:%M}",
+        f"- Template: `{summary.template}`",
+        "",
+        "| Current | Proposed |",
+        "|---------|----------|",
+    ]
+    for track, proposed in summary.rows:
+        lines.append(f"| {track.record.path} | {proposed} |")
+    if summary.collisions:
+        lines += ["", "## Collisions", ""]
+        for target, group in summary.collisions.items():
+            lines.append(f"- `{target}`: {len(group)} files")
+    return "\n".join(lines) + "\n"
     """Render the full METADATA_REPORT.md text."""
     header = [
         "# Metadata Report",
