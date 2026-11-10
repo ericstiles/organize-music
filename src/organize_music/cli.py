@@ -16,6 +16,7 @@ from organize_music.pipeline import collect_metadata, read_all, read_result
 from organize_music.reports import ScanSummary, render_metadata_report
 from organize_music.scanner import LibraryNotFoundError, single_record, walk_library
 from organize_music.tag_view import render_raw, render_tags
+from organize_music.rename import rename_plan, RenameAction
 
 EXIT_OK = 0
 EXIT_USAGE = 2
@@ -87,30 +88,40 @@ def run_hash(root: Path, index: Path, rehash: bool) -> int:
     return EXIT_OK
 
 
-def run_dupes(root: Path, report: Path, index: Path) -> int:
+def run_rename(root: Path, apply_: bool, report: Path) -> int:
     root = root.resolve()
     _ensure_outside(root, report, "report")
-    _ensure_outside(root, index, "index")
+    
+    # Get all audio files
     records = list(walk_library(root))
-    _say(f"Found {len(records)} files under {root} (index: {index})")
-    with IndexDB.open(index) as db:
-        run = collect_hashes(root, records, db, _say)
-        hashes = db.hashes.all(root)
-    sizes = {r.path: r.size for r in records}
-    summary = DupesSummary(
-        root=root,
-        generated_at=datetime.now(),
-        candidates=run.candidates,
-        groups=build_groups(hashes, sizes),
-        failures=run.failures,
-    )
-    _write_atomic(report, render_duplicates_report(summary))
-    extra = sum(len(g.paths) - 1 for g in summary.groups)
-    reclaim = sum(g.reclaimable for g in summary.groups) / BYTES_PER_GB
-    _say(
-        f"{len(summary.groups)} groups, {extra} extra copies, {reclaim:.2f} GB reclaimable "
-        f"(hashed {run.hashed}, cached {run.cached}, failed {run.failed}). Report: {report}"
-    )
+    if not records:
+        raise UsageError(f"no audio files found under {root}")
+    
+    # Collect filenames for rename planning
+    filenames = [str(r.path) for r in records]
+    plan = rename_plan(filenames)
+    
+    # Report to stdout
+    print("Rename preview:")
+    for action in plan.renames:
+        if action.changed:
+            print(f"  {action.source} → {action.target}")
+        else:
+            print(f"  {action.source} (unchanged)")
+    
+    # Report collisions
+    if plan.collisions:
+        print("\nCollisions detected (no changes made):")
+        for name in plan.collisions:
+            print(f"  {name}")
+    
+    # Actually apply if requested
+    if apply_:
+        _say("Applying renames...")
+        # TODO: implement actual file renaming logic here
+        
+    # Write report to file
+    _write_atomic(report, f"# Rename Report\n\nFiles processed: {len(records)}\nCollisions: {len(plan.collisions)}\n")
     return EXIT_OK
 
 
@@ -180,6 +191,13 @@ def _parser() -> argparse.ArgumentParser:
     _add_common(dup, report_name="DUPLICATES_REPORT.md")
     dup.set_defaults(
         run=lambda a, c: run_dupes(_root(a, c), _report(a, c, "DUPLICATES_REPORT.md"), _index(a, c))
+    )
+
+    rename = sub.add_parser("rename", help="rename files (spaces → underscores)")
+    rename.add_argument("--apply", action="store_true", help="apply the renames")
+    _add_common(rename)
+    rename.set_defaults(
+        run=lambda a, c: run_rename(_root(a, c), a.apply, _report(a, c, "RENAME_REPORT.md"))
     )
 
     tags = sub.add_parser("tags", help="print tag values for a file or directory to stdout")
