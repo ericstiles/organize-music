@@ -51,3 +51,15 @@ def render_name(template: str, track: TrackMetadata) -> str:
     def repl(match: re.Match[str]) -> str:
         return _field_value(track, match.group(1))
     return _PLACEHOLDER.sub(repl, template)
+
+
+def detect_collisions(items: list[tuple[str, str]]) -> dict[str, list[tuple[str, str]]]:
+    """Given (proposed_path, md5) pairs, group proposals sharing a path.
+
+    Returns a mapping of target path -> list of (source-ish, md5) for targets
+    with more than one proposer. Empty dict when no collisions.
+    """
+    groups: dict[str, list[tuple[str, str]]] = {}
+    for path, md5 in items:
+        groups.setdefault(path, []).append((path, md5))
+    return {p: g for p, g in groups.items() if len(g) > 1}
