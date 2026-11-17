@@ -35,7 +35,7 @@ and undo; deployment as a service.
 fingerprinting (`hpg`, deferred); multi-user or remote internet access; TLS; editing fields beyond
 the eight in `FIELD_NAMES`; cover-art editing; deleting anything in the library; tag writes for
 formats other than mp3 and m4a (Q-4); moving non-art sidecars such as `.nfo`, `.txt`, and `.m3u`
-(album art does move, §6.9).
+(album art does move, §6.8).
 
 ## 3. Build, adopt, decline
 
@@ -348,7 +348,7 @@ via, dst:
 `params_json`: `{path, tmp, parked, parked_dirs, before, after, expect_audio_hash, tmp_size,
 tmp_mtime_ns}`.
 - `tmp` is `work_dir/tmp/op-<id>.<ext>`.
-- `parked` is the original's place in the **purge folder** (§6.10): `purge_dir/<path>`, the same
+- `parked` is the original's place in the **purge folder** (§6.9): `purge_dir/<path>`, the same
   relative path the file had in the library at the time of the edit, with `-copy-N` (C5) if a
   file is already there. It is fixed at preview time.
 - `parked_dirs` lists the purge sub-folders created for it.
@@ -374,7 +374,7 @@ tmp_mtime_ns}`.
 | parked or applied | P ✓ (matches tmp), K ✓ | commit |
 | any other combination | | `needs_attention` |
 
-Originals in the purge folder stay until the owner deletes them by hand (§6.10); they give
+Originals in the purge folder stay until the owner deletes them by hand (§6.9); they give
 byte-exact restore and a
 safety net on top of undo.
 
@@ -416,7 +416,7 @@ safety net on top of undo.
 - **Where things live:** `library.db` and backups on the Pi's own storage
   (`~/.local/share/organize_music/`), never on the exFAT SSD (no journal; SQLite locking on exFAT
   is not worth trusting). `purge_dir` on the SSD outside the library:
-  `/media/ets04uga/Extreme/PlaceHereToKeepFromWork/purge` (§6.10). `work_dir` (tmp, oplog mirror)
+  `/media/ets04uga/Extreme/PlaceHereToKeepFromWork/purge` (§6.9). `work_dir` (tmp, oplog mirror)
   on the SSD outside the library:
   `/media/ets04uga/Extreme/PlaceHereToKeepFromWork/_organize_music_work`.
 - **Mounted check:** config names `library_mount`; `os.path.ismount(library_mount)`, the library
@@ -436,7 +436,7 @@ safety net on top of undo.
 | Unicode | new names written NFC; existing names kept as found; comparisons on NFC + casefold |
 | Same device | `st_dev` check of source parent and destination parent before `intent` |
 | Destination folders | `mkdir_one` per missing component, recorded in `created_dirs` |
-| Emptied folders | `rmdir_if_empty` after commit: only `os.rmdir`, which fails on any entry. Art follows its audio (§6.9); folders still holding `.nfo`, `.txt`, or `.m3u` stay and are listed in the batch result. |
+| Emptied folders | `rmdir_if_empty` after commit: only `os.rmdir`, which fails on any entry. Art follows its audio (§6.8); folders still holding `.nfo`, `.txt`, or `.m3u` stay and are listed in the batch result. |
 | Length | segment ≤ 120 characters, relative path ≤ 400 |
 
 ### 6.7 Undo
@@ -451,7 +451,7 @@ safety net on top of undo.
   folder, so undo still works after the owner empties the purge folder. Byte-exact restore from
   the purge folder is a separate later action, not undo.
 
-### 6.9 Album art follows its audio (Q-7, owner decided 2026-11-17)
+### 6.8 Album art follows its audio (Q-7, owner decided 2026-11-17)
 Art files (`kind='art'`) are indexed by the scan (stat and a whole-file hash; no tags) and moved
 by the same `move` operation as audio. `ops/plan_art.py` (pure) adds art units to a rename or
 move batch:
@@ -463,13 +463,13 @@ move batch:
 - **Never at the root:** art directly in the library root, a folder with no owner, never moves.
 - **Collision at the destination:**
   - byte-identical art already there: the incoming copy moves to the **purge folder** at its
-    original relative path (§6.10), never deleted;
+    original relative path (§6.9), never deleted;
   - different art: `-copy-N`, as in C5.
 - **Ordering:** art units run after every audio unit from F has committed. If any of those audio
   units failed, the art unit is `skipped`, because F still has audio.
 - Art is excluded from Duplicates, search, and tag editing. Undo moves art back like any move.
 
-### 6.10 Purge folder (Q-6, owner decided 2026-11-17)
+### 6.9 Purge folder (Q-6, owner decided 2026-11-17)
 The tool never deletes a library file. Anything it replaces goes to the purge folder, and **the
 owner empties it by hand** whenever they choose. The tool has no purge command.
 - **Location:** config `purge_dir`, default
@@ -482,7 +482,7 @@ owner empties it by hand** whenever they choose. The tool has no purge command.
 - If the same file is edited again later, the next original gets `-copy-N` (C5), so nothing in the
   purge folder is ever overwritten.
 - **What goes there:** the original of every tag edit (§6.3), and incoming album art identical to
-  art already at the destination (§6.9).
+  art already at the destination (§6.8).
 - **Space:** the originals use as much space as the files edited (300 songs ≈ 2–3 GB). The banner
   shows the purge folder's total size, from the DB, so the owner knows when to empty it.
 - **After the owner deletes from the purge folder:** undo still works (it writes the old tag values
@@ -491,7 +491,7 @@ owner empties it by hand** whenever they choose. The tool has no purge command.
 - The purge folder is never scanned as part of the library, and the tool never reads it except to
   check that a parked original exists.
 
-### 6.11 Invariants and where they are enforced
+### 6.10 Invariants and where they are enforced
 | # | Invariant | Enforced by |
 |---|-----------|-------------|
 | I1 | One row per current path, case-insensitively | schema: partial unique index on `path_key` |
@@ -576,7 +576,7 @@ step.
    (Rename by pattern, Edit field).
 2. **File detail:** fields with source badges, raw tags, history timeline, undo per committed unit.
 3. **Rename by pattern:** pattern input with vocabulary help → preview (current → proposed;
-   badges `ok`, `unchanged`, `collision`, `invalid`, `unsupported`); per-row manual override;
+   badges `ok`, `unchanged`, `renamed_copy` (got `-copy-N`, C5), `invalid`); per-row manual override;
    counts; Confirm.
 4. **Edit field:** field picker, new value, "also re-apply pattern" (Q-8) → preview of tag and
    path changes → Confirm.
@@ -617,7 +617,7 @@ time.
 - **Service:** systemd **user** unit `organize-music.service` (`loginctl enable-linger`, no root),
   `ExecStart=.venv/bin/organize-music serve`, `Restart=on-failure`, `RestartSec=5`. The library
   mount is checked by the app at startup, not by systemd, because `/media/ets04uga` is a desktop
-  automount that may appear late. Q-9 asks about an fstab mount instead.
+  automount that may appear late (Q-9: app waits; an fstab mount is optional and owner-run).
 - **Paths:** state `~/.local/share/organize_music/` (`library.db`, `backups/`, `auth.json`,
   `secret.key`, `writer.lock`); logs `~/.local/state/organize_music/logs/` (rotating, plus journald);
   config `~/.config/organize_music/config.yaml`; work dir on the SSD (§6.5). None is under the
@@ -692,8 +692,8 @@ run against the real library from Phase 3 on.
 | `8su` (audio hash) | rewrite per C3; raise to P1; parent Phase 3; becomes a prerequisite | prerequisite for safe tag writes |
 | `hpg` | keep; defer to Phase 9 (P4 priority) | not needed for v1 |
 | `p1b` | keep as is; Phase 9 | unrelated parser bug |
-| `3z4` (closed decision) | add a note pointing to C5 and C6 once the owner answers Q-1 and Q-2 | record the reversal |
-| `docs/TASKS.md` | replace the body with a pointer to beads and this plan (P0-7) | out of date |
+| `3z4` (closed decision) | add a note pointing to C5 and C6 (owner answered Q-1 and Q-2 on 2026-11-17) | record the reversal |
+| `docs/TASKS.md` | replace the body with a pointer to beads and this plan (P0-8) | out of date |
 
 ## 14. Owner decisions (answered 2026-11-17)
 
@@ -705,8 +705,8 @@ run against the real library from Phase 3 on.
 | 3 | Single password, bound to the Pi's LAN address, plain HTTP | §9.4 | decided |
 | 4 | Tags live in the file; the DB holds a copy; edits write the file; mp3 and m4a only | C7 | decided |
 | 5 | No CLI mutations; the UI is the only way to change files | C4 | decided |
-| 6 | Replaced originals go to `purge/`, mirroring the library folder structure; the owner empties it by hand | §6.10 | decided |
-| 7 | Album art moves with its audio | §6.9 | decided |
+| 6 | Replaced originals go to `purge/`, mirroring the library folder structure; the owner empties it by hand | §6.9 | decided |
+| 7 | Album art moves with its audio | §6.8 | decided |
 | 8 | Editing a field re-applies the pattern only to already-organised files | C6, P5-5 | decided |
 | 9 | App waits for the drive and blocks scans and changes until it is mounted; a boot-time fstab mount is optional, owner-run, outside this project | §6.5 | decided |
 
