@@ -99,7 +99,7 @@ Tracker hygiene (§13 of the plan) is done by the issue-writing session itself, 
 | P4-1a | Multi-disc album query | `db/albums_query.py`: `multi_disc_albums(conn) -> frozenset[tuple[str, str]]` (album artist, else artist; album) for present audio files with disc total > 1 in raw tags or disc ≥ 2 (plan C6 rule N3) | qwen | | P4-1 |
 | P4-2 | Pattern planner (pure) | `ops/plan_pattern.py`: `plan_pattern(rows, template, overrides, taken_keys) -> list[PlannedUnit]` with statuses ok, unchanged, renamed_copy, invalid; within-batch and case-only handling | qwen | R | P4-1, P4-1a |
 | P4-2a | Collision suffixer (pure) | `ops/copy_suffix.py`: `assign_suffixes(claims: Sequence[Claim], taken_keys: Set[str]) -> dict[int, str]` per plan C5 (existing file keeps the name; then bitrate desc; then lowest file_id; lowest free N); used by P4-2 | qwen | R | P4-1 |
-| P4-2b | Art follows audio planner (pure) | `ops/plan_art.py`: `plan_art(audio_units, folder_audio_counts, art_rows, taken_keys) -> list[PlannedUnit]` per plan §6.9 (move only when no audio is left; majority destination; root art never moves; identical → purge folder at its original relative path, different → `-copy-N`) | qwen | R | P4-2, P4-2a |
+| P4-2b | Art follows audio planner (pure) | `ops/plan_art.py`: `plan_art(audio_units, folder_audio_counts, art_rows, taken_keys) -> list[PlannedUnit]` per plan §6.8 (move only when no audio is left; majority destination; root art never moves; identical → purge folder at its original relative path, different → `-copy-N`) | qwen | R | P4-2, P4-2a |
 | P4-3 | Selection snapshots | `db/selections.py`: `create(conn, ids \| FileQuery) -> str`, `ids(conn, snapshot_id)` | qwen | | P3-END |
 | P4-4 | Batch runner: units, stop rules, cancel | `ops/batch_runner.py`: `run_batch(batch_id, ctx, job) -> BatchResult`; registered as the `batch` job handler; art units run after their folder's audio units and are skipped if any failed | qwen | R | P4-2b |
 | P4-5 | Emptied-folder cleanup after commit | `ops/dirs.py`: `cleanup_parents(root, rel_dir, fs) -> list[str]`, rmdir only, stops at the root | qwen | R | P4-4 |
@@ -149,4 +149,4 @@ Tracker hygiene (§13 of the plan) is done by the issue-writing session itself, 
 ## Phase 9: Later (epic)
 `cpc` (rewritten: quarantine batch kind, depends on P4-4 and P3-5), `hpg`, `p1b`, and a new
 "byte-exact restore from the purge folder" issue, all P3 or lower. There is no purge command:
-the owner empties the purge folder by hand (plan §6.10).
+the owner empties the purge folder by hand (plan §6.9).
