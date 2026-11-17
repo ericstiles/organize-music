@@ -379,10 +379,13 @@ byte-exact restore and a
 safety net on top of undo.
 
 ### 6.4 Batches, units, and isolation
-- **Preview then confirm.** A preview builds a `draft` batch with `planned` operations, each
-  carrying its precondition. Confirm checks that every `expect_row_version` still matches. If any
-  differs, the server answers `409 PREVIEW_STALE` and the UI offers to re-preview. A confirmed
-  batch becomes a `batch` job.
+- **Preview then confirm.** A preview computes the planned units, each carrying its precondition,
+  and stores them as a draft in `state_dir/drafts.db`, a scratch database owned by the web
+  process. Drafts and selection snapshots never go into `library.db`, which keeps exactly one
+  writer (revised 2026-11-17 while writing the Phase 4 issues). Confirm enqueues a `batch` job with
+  the draft id. The job first re-checks every `expect_row_version` against `library.db`. If any
+  differs, the job fails with `PREVIEW_STALE`, nothing is written, and the UI offers to re-preview.
+  Otherwise it writes the batch and its `planned` operations in one transaction and runs them.
 - **Units.** All operations for one file form a unit (retag before move). All preconditions,
   collision checks, and space checks for a unit run before its first disk change. A unit that
   fails before its first change is `failed` with nothing touched. If a unit's retag commits and its
