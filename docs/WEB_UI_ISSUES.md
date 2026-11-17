@@ -142,7 +142,7 @@ Tracker hygiene (§13 of the plan) is done by the issue-writing session itself, 
 |----|-------|-------|-------|---|---------|
 | P8-1 | systemd user units | `deploy/organize-music.service`, `deploy/organize-music-backup.{service,timer}` | qwen | | P7-END |
 | P8-2 | Deploy script: stop, back up, migrate, start, healthz | `scripts/deploy_to_pi.sh` | qwen | R (**opus**) | P8-1 |
-| P8-3 | Re-point or retire the legacy CLI commands | `cli*.py`; `meta`, `hash`, `dupes`, `tags` read from `library.db`, or are removed per owner | qwen | | P7-END |
+| P8-3 | Legacy CLI: retire meta and hash, re-point dupes | `cli*.py`; `meta` and `hash` retired (they write a DB; only the job worker writes `library.db`, plan §6.4); `dupes` re-pointed to read `library.db` read-only (plan C4 keeps read-only commands); `tags` unchanged | qwen | | P7-END |
 | P8-4 | First real-library run, read-only | runbook: scan and hash the real library with `mutations_enabled: false` | **owner+opus** | | P8-2, P8-3 |
 | P8-5 | Open the real-library gate | runbook: owner review, enable mutations, one-album rename and undo | **owner+opus** | | P8-4, P8-END |
 
