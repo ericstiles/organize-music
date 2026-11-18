@@ -386,3 +386,12 @@ def test_tags_raw_on_unreadable_file_reports_error(
 ) -> None:
     assert cli.main(["tags", str(library / "broken.mp3"), "--raw"]) == 0
     assert "broken.mp3" in capsys.readouterr().out
+
+
+def test_rename_command_is_gone() -> None:
+    # The `rename` subcommand was dropped (Phase 0, C4): it is no longer a
+    # recognised subcommand, so argparse rejects it with an "invalid choice"
+    # error and exits 2 rather than dispatching run_rename.
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["rename"])
+    assert exc.value.code == 2
