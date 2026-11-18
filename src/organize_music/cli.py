@@ -146,7 +146,12 @@ def run_tags(path: Path, raw: bool = False) -> int:
 
 
 def _root(args: argparse.Namespace, config: Config) -> Path:
-    return args.root or config.library
+    root = args.root or config.library
+    if root is None:
+        raise UsageError(
+            "no library: pass a root, set 'library' in the config, or export MUSIC_LIB"
+        )
+    return root
 
 
 def _report(args: argparse.Namespace, config: Config, filename: str) -> Path:

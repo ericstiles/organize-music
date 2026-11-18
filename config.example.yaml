@@ -2,12 +2,13 @@
 #   $XDG_CONFIG_HOME/organize_music/config.yaml   (usually ~/.config/organize_music/config.yaml)
 # or pass it explicitly:  organize-music meta --config /path/to/config.yaml
 #
-# Every setting is optional; anything omitted uses the built-in default shown here.
+# Every setting is optional. `library` and `quarantine` fall back to the environment
+# variables MUSIC_LIB and MUSIC_QUARANTINE; quarantine otherwise sits beside the library.
 # CLI flags (--index, --report, and the root argument) override the file.
 # The tool never writes this file.
 
 # Root of the music library to scan. Also the default `root` when none is given.
-library: /path/to/library-parent/Music
+# library: /path/to/Music          # or export MUSIC_LIB
 
 # SQLite index (cache of tags and hashes). Must be OUTSIDE the library.
 index: ~/organize_music/state/index.db
@@ -17,7 +18,7 @@ reports: ~/organize_music/reports
 
 # Where duplicate leftovers are moved, later, by the organize/quarantine steps.
 # Same disk as the library but outside it, so moves are instant. Must be OUTSIDE the library.
-quarantine: /path/to/library-parent/_quarantine
+# quarantine: /path/to/_quarantine  # or export MUSIC_QUARANTINE
 
 # Target layout for the future `organize` step (preview only until then).
 # Placeholders: ${artist} ${album} ${title} ${track} ${ext}

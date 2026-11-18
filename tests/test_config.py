@@ -16,9 +16,13 @@ def write(tmp_path: Path, text: str) -> Path:
 def test_defaults_when_no_file_and_no_xdg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty"))
 
+    monkeypatch.delenv("MUSIC_LIB", raising=False)
+    monkeypatch.delenv("MUSIC_QUARANTINE", raising=False)
+
     config = load_config(None)
 
-    assert config.library == Path(DEFAULTS["library"])
+    assert config.library is None
+    assert config.quarantine is None
     assert config.folder_format == DEFAULTS["folder_format"]
     assert "ipod_favs" in config.skip_folders
 
@@ -124,9 +128,34 @@ def test_malformed_yaml_is_rejected(tmp_path: Path) -> None:
 def test_empty_file_yields_defaults(tmp_path: Path) -> None:
     config = load_config(write(tmp_path, ""))
 
-    assert config.library == Path(DEFAULTS["library"])
+    assert config.folder_format == DEFAULTS["folder_format"]
 
 
 def test_non_string_path_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="library must be a path string"):
         load_config(write(tmp_path, "library: 123\n"))
+
+
+def test_library_and_quarantine_come_from_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty"))
+    monkeypatch.setenv("MUSIC_LIB", str(tmp_path / "lib" / "Music"))
+    monkeypatch.setenv("MUSIC_QUARANTINE", str(tmp_path / "lib" / "_q"))
+
+    config = load_config(None)
+
+    assert config.library == tmp_path / "lib" / "Music"
+    assert config.quarantine == tmp_path / "lib" / "_q"
+
+
+def test_quarantine_defaults_next_to_library_when_only_library_is_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty"))
+    monkeypatch.setenv("MUSIC_LIB", str(tmp_path / "lib" / "Music"))
+    monkeypatch.delenv("MUSIC_QUARANTINE", raising=False)
+
+    config = load_config(None)
+
+    assert config.quarantine == tmp_path / "lib" / "_quarantine"

@@ -2,7 +2,8 @@
 
 Resolution order for each setting: CLI override > config file > built-in default.
 The file is looked up at --config PATH, else $XDG_CONFIG_HOME/organize_music/config.yaml.
-Validation fails fast with a clear message.
+Unset library/quarantine fall back to $MUSIC_LIB / $MUSIC_QUARANTINE; quarantine otherwise
+defaults to `_quarantine` beside the library. Validation fails fast with a clear message.
 """
 
 import os
@@ -13,10 +14,10 @@ from pathlib import Path
 import yaml
 
 DEFAULTS: dict[str, object] = {
-    "library": "/path/to/library-parent/Music",
+    "library": None,
     "index": "~/organize_music/state/index.db",
     "reports": "~/organize_music/reports",
-    "quarantine": "/path/to/library-parent/_quarantine",
+    "quarantine": None,
     "folder_format": "${artist}/${album}/${track}-${title}.${ext}",
     "skip_folders": ["Music2", "music", "OrganizesByGenre", "ipod_favs", "osx_sd_card_a_to_b"],
 }
@@ -30,10 +31,10 @@ class ConfigError(Exception):
 
 @dataclass(frozen=True)
 class Config:
-    library: Path
+    library: Path | None
     index: Path
     reports: Path
-    quarantine: Path
+    quarantine: Path | None
     folder_format: str
     skip_folders: tuple[str, ...]
 
@@ -85,10 +86,12 @@ def _as_str_list(key: str, value: object) -> tuple[str, ...]:
 
 
 def _validate_layout(config: Config) -> None:
+    if config.library is None:
+        return
     library = config.library.resolve()
     for key in _OUTSIDE_LIBRARY:
-        path: Path = getattr(config, key)
-        if path.resolve().is_relative_to(library):
+        path: Path | None = getattr(config, key)
+        if path is not None and path.resolve().is_relative_to(library):
             raise ConfigError(f"{key} must be outside the library: {path}")
 
 
@@ -99,11 +102,16 @@ def load_config(path: Path | None, overrides: Mapping[str, object] | None = None
         if value is not None:
             values[key] = value
 
+    library = _optional_path("library", values["library"], "MUSIC_LIB")
+    quarantine = _optional_path("quarantine", values["quarantine"], "MUSIC_QUARANTINE")
+    if quarantine is None and library is not None:
+        quarantine = library.parent / "_quarantine"
+
     config = Config(
-        library=_coerce("library", values["library"]),
+        library=library,
         index=_coerce("index", values["index"]),
         reports=_coerce("reports", values["reports"]),
-        quarantine=_coerce("quarantine", values["quarantine"]),
+        quarantine=quarantine,
         folder_format=_as_str("folder_format", values["folder_format"]),
         skip_folders=_as_str_list("skip_folders", values["skip_folders"]),
     )
@@ -114,3 +122,10 @@ def load_config(path: Path | None, overrides: Mapping[str, object] | None = None
 def _coerce(key: str, value: object) -> Path:
     """Accept a Path (from an override) or a string (from file/defaults)."""
     return value if isinstance(value, Path) else _as_path(key, value)
+
+
+def _optional_path(key: str, value: object, env_var: str) -> Path | None:
+    """A path from the setting, else from the environment variable, else None."""
+    if value is None:
+        value = os.environ.get(env_var) or None
+    return None if value is None else _coerce(key, value)
