@@ -419,9 +419,9 @@ safety net on top of undo.
 - **Where things live:** `library.db` and backups on the Pi's own storage
   (`~/.local/share/organize_music/`), never on the exFAT SSD (no journal; SQLite locking on exFAT
   is not worth trusting). `purge_dir` on the SSD outside the library:
-  `/path/to/library-parent/purge` (§6.9). `work_dir` (tmp, oplog mirror)
+  `$MUSIC_LIB/../purge` (§6.9). `work_dir` (tmp, oplog mirror)
   on the SSD outside the library:
-  `/path/to/library-parent/_organize_music_work`.
+  `$MUSIC_LIB/../_organize_music_work`.
 - **Mounted check:** config names `library_mount`; `os.path.ismount(library_mount)`, the library
   root exists, and `st_dev` of the root, `work_dir`, and quarantine are equal.
 - **Power cut on exFAT** can leave: a rename not persisted (recovery sees "not applied"); a doubled
@@ -476,7 +476,7 @@ move batch:
 The tool never deletes a library file. Anything it replaces goes to the purge folder, and **the
 owner empties it by hand** whenever they choose. The tool has no purge command.
 - **Location:** config `purge_dir`, default
-  `/path/to/library-parent/purge`. It is on the same SSD as the library (so
+  `$MUSIC_LIB/../purge`. It is on the same SSD as the library (so
   moving a file there is an instant rename and uses no extra space) and outside the library root.
   Startup validates both.
 - **Layout:** a file keeps the **same folder structure it had in the library** at the moment it was
@@ -619,7 +619,7 @@ time.
 ## 10. Deployment on the Pi
 - **Service:** systemd **user** unit `organize-music.service` (`loginctl enable-linger`, no root),
   `ExecStart=.venv/bin/organize-music serve`, `Restart=on-failure`, `RestartSec=5`. The library
-  mount is checked by the app at startup, not by systemd, because `/media/user` is a desktop
+  mount is checked by the app at startup, not by systemd, because the external drive is a desktop
   automount that may appear late (Q-9: app waits; an fstab mount is optional and owner-run).
 - **Paths:** state `~/.local/share/organize_music/` (`library.db`, `backups/`, `auth.json`,
   `secret.key`, `writer.lock`); logs `~/.local/state/organize_music/logs/` (rotating, plus journald);

@@ -4,12 +4,12 @@ Tools and scripts for organizing a music library — reading track metadata,
 de-duplicating, and tidying folder structure.
 
 Companion to the music copied onto the Pi 5's 1 TB SSD
-(`/path/to/library-parent/Music`) by the
+(`$MUSIC_LIB`) by the
 [talk-to-pi](../talk-to-pi) project.
 
 ## Usage
 
-The tools run **on the Pi** (`the-pi`, `ssh user@pi-host`) against
+The tools run **on the Pi** (`ssh $PI_HOST`) against
 the library in place; you develop and run the tests on the Mac. Deploy and run:
 
 ```bash
@@ -17,10 +17,10 @@ the library in place; you develop and run the tests on the Mac. Deploy and run:
 scripts/deploy_to_pi.sh
 
 # then on the Pi
-ssh user@pi-host
+ssh $PI_HOST
 tmux new -s music
 cd ~/organize_music && source .venv/bin/activate
-LIB=/path/to/library-parent/Music
+LIB=$MUSIC_LIB
 organize-music dupes "$LIB" --report ~/organize_music/reports/DUPLICATES_REPORT.md
 ```
 

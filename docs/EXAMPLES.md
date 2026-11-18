@@ -2,7 +2,7 @@
 
 Worked examples for the `organize-music` CLI.
 
-**Where it runs:** the tools run **on the Pi** (`the-pi`, `pi-host`),
+**Where it runs:** the tools run **on the Pi** (the host in `$PI_HOST`),
 against the music library in place. You develop and run the tests on the Mac,
 then deploy to the Pi to run against the real library. Every command here is
 **read-only**: the tools stat and hash files and write Markdown reports, but
@@ -10,8 +10,8 @@ never move, rename, or delete anything in the library.
 
 | Thing | Value |
 |-------|-------|
-| Pi host | `user@pi-host` (`ssh user@pi-host`) |
-| Library root (on the Pi) | `/path/to/library-parent/Music` |
+| Pi host | `$PI_HOST` (`ssh $PI_HOST`) |
+| Library root (on the Pi) | `$MUSIC_LIB` |
 | Install dir (on the Pi) | `~/organize_music` (its own `.venv`) |
 | Index (default) | `~/.local/share/organize_music/index.db` |
 
@@ -36,7 +36,7 @@ PATH), and verifies `organize-music --help`.
 SSH in and run long jobs under `tmux` so they survive a dropped connection.
 
 ```bash
-ssh user@pi-host
+ssh $PI_HOST
 tmux new -s music                      # detach with Ctrl-b d, reattach: tmux attach -t music
 cd ~/organize_music
 source .venv/bin/activate
@@ -45,7 +45,7 @@ source .venv/bin/activate
 The three commands, against the real library:
 
 ```bash
-LIB=/path/to/library-parent/Music
+LIB=$MUSIC_LIB
 
 organize-music meta  "$LIB" --report ~/organize_music/reports/METADATA_REPORT.md
 organize-music hash  "$LIB"
@@ -60,7 +60,7 @@ Pull a finished report back to the Mac:
 
 ```bash
 # run on the Mac
-scp user@pi-host:organize_music/reports/DUPLICATES_REPORT.md .
+scp $PI_HOST:organize_music/reports/DUPLICATES_REPORT.md .
 ```
 
 ## The three commands
@@ -145,10 +145,10 @@ Sample `DUPLICATES_REPORT.md`:
 ## Typical first-run workflow on the Pi
 
 ```bash
-ssh user@pi-host
+ssh $PI_HOST
 tmux new -s music
 cd ~/organize_music && source .venv/bin/activate
-LIB=/path/to/library-parent/Music
+LIB=$MUSIC_LIB
 
 organize-music meta  "$LIB" --report ~/organize_music/reports/METADATA_REPORT.md
 organize-music hash  "$LIB"

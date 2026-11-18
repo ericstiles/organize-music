@@ -11,7 +11,7 @@ Detailed contracts are in [SPECS.md](SPECS.md). The phase checklist is in
 | # | Question | Decision |
 |---|----------|----------|
 | 1 | What comes first | **Metadata first.** CLI first; web UI later (separate beads issue). |
-| 2 | Where it runs | On the **Pi 5** (`the-pi`, `pi-host`), against the library in place. Development and tests on the Mac. |
+| 2 | Where it runs | On the **Pi 5** (the host in `$PI_HOST`), against the library in place. Development and tests on the Mac. |
 | 3 | Library shape | Surveyed directly: see [LIBRARY_SURVEY.md](LIBRARY_SURVEY.md). |
 | 4 | Naming | A naming *template* is stored in config and can be changed later; `names` only **previews** it. Example (not final): `${album}-${artist}-${track}.${ext}`. **Renaming/moving happens only in the dedicated `organize` command, and only with `--apply`.** Every other command is read-only on the library (Phase 5's `quarantine` is the one other `--apply` command, for duplicates after organizing). |
 | 5 | Duplicates | **Whole-file MD5**, but only for files whose byte size matches another file's. Audio-only hashing (ignores tag differences) is a follow-up. **Report only for now** (2026-11-03): no keeper is chosen and nothing is moved until after organizing. |
@@ -144,5 +144,5 @@ How `naming.py` turns a `TrackMetadata` field into a path segment, for the
   template string is confirmed after reading NAME_PREVIEW from Phase 2.
 - **Keeper preference** (before Phase 5 only): which copy stays when duplicates
   are acted on. Deferred until after organizing.
-- **Quarantine location:** suggested `/path/to/library-parent/_quarantine`
+- **Quarantine location:** suggested `$MUSIC_QUARANTINE`
   (same disk, outside `Music/`).

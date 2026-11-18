@@ -7,10 +7,10 @@ modified. Re-run the commands at the bottom to refresh.
 
 | Item | Value |
 |------|-------|
-| Pi | `the-pi` — `ssh user@pi-host` (see `../talk-to-pi/PI_INVENTORY.md`) |
+| Pi | the Pi — `ssh $PI_HOST` |
 | Board | Raspberry Pi 5, 4 cores, 15 GiB RAM, Debian 13 `aarch64` |
 | Python | 3.13.5 (system) |
-| Library root | `/path/to/library-parent/Music` |
+| Library root | `$MUSIC_LIB` |
 | Disk | `/dev/sda1` 932 G, 578 G used (library is the 578 G), 355 G free |
 | Tools present | `ffprobe`, `md5sum` |
 | Tools missing | `mutagen` (Python), `fpcalc` (Chromaprint) |
@@ -81,7 +81,7 @@ from the hash pass (see [PLAN.md](PLAN.md)).
 ## Commands used
 
 ```bash
-M=/path/to/library-parent/Music
+M=$MUSIC_LIB
 find "$M" -type f | sed 's/.*\.//' | tr A-Z a-z | sort | uniq -c | sort -rn
 find "$M" -type f \( -iname '*.mp3' -o -iname '*.m4a' \) | awk -F/ '{print NF-7}' | sort -n | uniq -c
 find "$M" -mindepth 2 -type f \( -iname '*.mp3' -o -iname '*.m4a' \) | cut -d/ -f8 | sort | uniq -c | sort -rn | head
