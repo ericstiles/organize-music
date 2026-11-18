@@ -61,6 +61,10 @@ organize_music/
    - Markdown docs: `UPPERCASE_WITH_UNDERSCORES.md`
 6. **No Phantom Code**: No placeholder functions, dead imports, or untested branches.
 
+## Unattended runs (Hermes)
+Unattended `hermes-run` sessions follow the **"Autonomous Beads workflow"** section of
+`AGENTS.md`, which opts them in to branch, commit, push and open PRs (never push to `main`,
+never merge). Interactive sessions keep the Conservative profile below.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:1105d646 -->
 ## Beads Issue Tracker
