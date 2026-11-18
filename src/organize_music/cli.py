@@ -88,6 +88,33 @@ def run_hash(root: Path, index: Path, rehash: bool) -> int:
     return EXIT_OK
 
 
+def run_dupes(root: Path, report: Path, index: Path) -> int:
+    root = root.resolve()
+    _ensure_outside(root, report, "report")
+    _ensure_outside(root, index, "index")
+    records = list(walk_library(root))
+    _say(f"Found {len(records)} files under {root} (index: {index})")
+    with IndexDB.open(index) as db:
+        run = collect_hashes(root, records, db, _say)
+        hashes = db.hashes.all(root)
+    sizes = {r.path: r.size for r in records}
+    summary = DupesSummary(
+        root=root,
+        generated_at=datetime.now(),
+        candidates=run.candidates,
+        groups=build_groups(hashes, sizes),
+        failures=run.failures,
+    )
+    _write_atomic(report, render_duplicates_report(summary))
+    extra = sum(len(g.paths) - 1 for g in summary.groups)
+    reclaim = sum(g.reclaimable for g in summary.groups) / BYTES_PER_GB
+    _say(
+        f"{len(summary.groups)} groups, {extra} extra copies, {reclaim:.2f} GB reclaimable "
+        f"(hashed {run.hashed}, cached {run.cached}, failed {run.failed}). Report: {report}"
+    )
+    return EXIT_OK
+
+
 def run_rename(root: Path, apply_: bool, report: Path) -> int:
     root = root.resolve()
     _ensure_outside(root, report, "report")
