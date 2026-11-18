@@ -64,10 +64,18 @@ For PR `N`:
 ```bash
 gh pr view N --json headRefName,title,body   # id from branch bd/<id>, title, "Bead: <id>"
 bd show <id>                                 # must be in_progress, notes link PR N
+gh pr comment N -b "Review: <findings>"      # the review record (see below)
 gh pr merge N --rebase
-bd close <id> --reason "merged PR #N"
+bd close <id> --force --reason "merged PR #N"
 bd dolt push
 ```
+
+- **Comment, not approve:** Hermes opens PRs with the owner's GitHub token, so
+  GitHub treats the reviewer's approval as approving your own PR and refuses
+  it. The review comment is the record.
+- **`--force` on close:** the ticket is assigned to "Hermes Agent" and bd
+  refuses to close a ticket assigned to another actor. The reviewer closing
+  it on merge is intended, so `--force` is expected here.
 
 If the branch, the PR and the ticket notes disagree, do not merge or close;
 ask the owner.
