@@ -65,6 +65,8 @@ organize_music/
 Unattended `hermes-run` sessions follow the **"Autonomous Beads workflow"** section of
 `AGENTS.md`, which opts them in to branch, commit, push and open PRs (never push to `main`,
 never merge). Interactive sessions keep the Conservative profile below.
+Claude reviews those PRs, rebase-merges approved ones and closes the bead on
+merge; the full ticket lifecycle is in `docs/AGENTS_WORKFLOW.md`.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:1105d646 -->
 ## Beads Issue Tracker
