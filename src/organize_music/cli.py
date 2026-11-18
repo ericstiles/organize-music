@@ -16,7 +16,6 @@ from organize_music.pipeline import collect_metadata, read_all, read_result
 from organize_music.reports import ScanSummary, render_metadata_report
 from organize_music.scanner import LibraryNotFoundError, single_record, walk_library
 from organize_music.tag_view import render_raw, render_tags
-from organize_music.rename import rename_plan, RenameAction
 
 EXIT_OK = 0
 EXIT_USAGE = 2
@@ -115,43 +114,6 @@ def run_dupes(root: Path, report: Path, index: Path) -> int:
     return EXIT_OK
 
 
-def run_rename(root: Path, apply_: bool, report: Path) -> int:
-    root = root.resolve()
-    _ensure_outside(root, report, "report")
-    
-    # Get all audio files
-    records = list(walk_library(root))
-    if not records:
-        raise UsageError(f"no audio files found under {root}")
-    
-    # Collect filenames for rename planning
-    filenames = [str(r.path) for r in records]
-    plan = rename_plan(filenames)
-    
-    # Report to stdout
-    print("Rename preview:")
-    for action in plan.renames:
-        if action.changed:
-            print(f"  {action.source} → {action.target}")
-        else:
-            print(f"  {action.source} (unchanged)")
-    
-    # Report collisions
-    if plan.collisions:
-        print("\nCollisions detected (no changes made):")
-        for name in plan.collisions:
-            print(f"  {name}")
-    
-    # Actually apply if requested
-    if apply_:
-        _say("Applying renames...")
-        # TODO: implement actual file renaming logic here
-        
-    # Write report to file
-    _write_atomic(report, f"# Rename Report\n\nFiles processed: {len(records)}\nCollisions: {len(plan.collisions)}\n")
-    return EXIT_OK
-
-
 def run_tags(path: Path, raw: bool = False) -> int:
     path = path.resolve()
     if path.is_dir():
@@ -223,13 +185,6 @@ def _parser() -> argparse.ArgumentParser:
     _add_common(dup, report_name="DUPLICATES_REPORT.md")
     dup.set_defaults(
         run=lambda a, c: run_dupes(_root(a, c), _report(a, c, "DUPLICATES_REPORT.md"), _index(a, c))
-    )
-
-    rename = sub.add_parser("rename", help="rename files (spaces → underscores)")
-    rename.add_argument("--apply", action="store_true", help="apply the renames")
-    _add_common(rename)
-    rename.set_defaults(
-        run=lambda a, c: run_rename(_root(a, c), a.apply, _report(a, c, "RENAME_REPORT.md"))
     )
 
     tags = sub.add_parser("tags", help="print tag values for a file or directory to stdout")
