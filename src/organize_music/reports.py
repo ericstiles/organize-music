@@ -121,6 +121,9 @@ def render_name_preview_report(summary: NamePreviewSummary) -> str:
         for target, group in summary.collisions.items():
             lines.append(f"- `{target}`: {len(group)} files")
     return "\n".join(lines) + "\n"
+
+
+def render_metadata_report(summary: ScanSummary) -> str:
     """Render the full METADATA_REPORT.md text."""
     header = [
         "# Metadata Report",
