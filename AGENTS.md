@@ -7,14 +7,15 @@ sandbox). It is an explicit opt-in to branch, commit, push and open PRs, and
 overrides the "Conservative: do not commit or push" default for this workflow
 only. Interactive sessions keep the Conservative profile.
 
-- Beads data comes from the Dolt file remote mounted at `/beads-remote`, not
-  from git. Before anything else:
-  - if this clone has no beads database (`bd stats` fails or shows 0 issues):
-    `bd init --remote file:///beads-remote --non-interactive`
+- Beads data comes from the Dolt file remote in `.beads/config.yaml`
+  (`sync.remote`), which the sandbox mounts at the same path. It is not in git.
+  Before anything else:
+  - if this clone has no beads database: `bd bootstrap --non-interactive`
   - otherwise: `bd dolt pull`
-  If `/beads-remote` is missing or empty, print `RUN_BLOCKED` with the reason
-  and stop. Never fall back to `docs/WEB_UI_ISSUES.md` or any markdown list as
-  the queue.
+  Then check `bd stats`. If the remote directory is missing, bootstrap fails,
+  or the database has 0 issues, print the reason and `RUN_BLOCKED`, and stop.
+  Never fall back to `docs/WEB_UI_ISSUES.md` or any markdown list as the
+  queue, and never edit `sync.remote`.
 - Print the stop markers `NO_READY_WORK` and `RUN_BLOCKED` alone on their own
   line, exactly as written; the harness classifies the run from them.
 - Then `bd prime`. Use `bd` for all tracking; no markdown TODOs.
