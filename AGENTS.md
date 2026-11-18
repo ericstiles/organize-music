@@ -20,12 +20,21 @@ only. Interactive sessions keep the Conservative profile.
   line, exactly as written; the harness classifies the run from them.
 - Then `bd prime`. Use `bd` for all tracking; no markdown TODOs.
 - Do exactly ONE issue per session:
-  1. `bd ready --json`. If empty, print `NO_READY_WORK` and stop.
+  1. Pick the issue with exactly this command, and take the FIRST item:
+     `bd ready --json --exclude-type epic --sort priority`
+     (highest priority first; dependencies already filter out anything not
+     yet unblocked). Do not pick by title, label or your own judgement, and
+     never work an epic: epics are containers closed by their children. If the
+     list is empty, print `NO_READY_WORK` and stop.
   2. `bd update <id> --claim --json`, then `bd show <id>`.
   3. Branch `bd/<id>` from latest `origin/main`. Implement test-first, then run
      the quality gate: `ruff check . && ruff format --check . && pytest`.
   4. If tests pass: commit, push the branch, open a PR with `gh pr create`
-     (base `main`), then `bd close <id> --reason "<summary + PR link>" --json`.
+     (base `main`). Put the bead id in the PR title, e.g.
+     `fix(<id>): <summary>`, and a line `Bead: <id>` in the PR body. Then
+     `bd update <id> --append-notes "PR: <url>"`. Do NOT close the issue:
+     it stays `in_progress` so its dependents stay blocked until the PR is
+     merged. The reviewer closes it on merge (see `docs/AGENTS_WORKFLOW.md`).
   5. If you hit a blocker: commit WIP to the branch, push it, run
      `bd update <id> --status blocked --append-notes "<why>"`, and print
      `RUN_BLOCKED`. Stop. Don't guess at requirements.
