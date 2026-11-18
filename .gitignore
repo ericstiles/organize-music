@@ -41,3 +41,6 @@ dist/
 
 # Local-only Claude Code hook scripts
 .claude/hooks/
+
+# hermes-launch run logs
+logs/
