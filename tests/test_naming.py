@@ -68,3 +68,22 @@ def test_render_name_empty_stem_is_rejected():
     # raise on an empty stem too, rather than returning a folder path.
     with pytest.raises(ValueError, match="empty file name"):
         render_name("${artist}/${title}", _track(title=None))
+
+
+def test_render_name_track_number_placeholder():
+    # ${track_number} resolves through the track_number branch of _field_value.
+    t = _track(track=7)
+    assert render_name("${track_number}-${title}.${ext}", t) == "7-Learn_To_Fly.mp3"
+
+
+def test_render_name_disc_number_placeholder():
+    # ${disc_number} resolves through the disc_number branch of _field_value.
+    t = _track()
+    assert render_name("${disc_number}/${title}.${ext}", t) == "Learn_To_Fly.mp3"
+
+
+def test_render_name_last_segment_without_extension():
+    # A template whose last segment carries no '.' takes the no-dot branch,
+    # preserving a non-empty stem.
+    t = _track()
+    assert render_name("${artist}/${title}", t) == "Carbon_Leaf/Learn_To_Fly"
