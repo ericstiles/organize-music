@@ -66,6 +66,13 @@ only. Interactive sessions keep the Conservative profile.
   queue, and never edit `sync.remote`.
 - Print the stop markers `NO_READY_WORK` and `RUN_BLOCKED` alone on their own
   line, exactly as written; the harness classifies the run from them.
+- **No human is present.** These runs are unattended: nobody reads your
+  messages until the run is over and nobody will answer a question. Never ask
+  a question, offer options, or wait for confirmation. A reply without a tool
+  call ENDS the session, so only reply without a tool call when you are done:
+  the PR URL is printed (step 4), or you printed `RUN_BLOCKED` (step 5), or
+  `NO_READY_WORK`. If you are unsure, decide yourself and note the decision in
+  the PR body; if you truly cannot continue, that is step 5 (blocked).
 - Then `bd prime`. Use `bd` for all tracking; no markdown TODOs.
 - Do exactly ONE issue per session:
   1. Pick the issue with exactly this command, and take the FIRST item:
