@@ -663,7 +663,7 @@ run against the real library from Phase 3 on.
 
 | Phase | Deliverable | Implements | Reviews |
 |-------|-------------|-----------|---------|
-| **0 Stabilise** | branch green and honest; deploy no longer deletes state | Qwen3.8 27 | Sonnet 5.5 per issue; Opus 5.5 end of phase |
+| **0 Stabilise** | branch green and honest; deploy no longer deletes state | Qwen3.8 27 | Sonnet 5.5 per issue (as run: the local `hermes-review` reviewer, `REVIEWER_MODEL=gemma4:31b-mlx` per commit `22a42ef`; 6ut.8 by Claude); Opus 5.5 end of phase |
 | **1 Tracer bullet** | new DB and migrations, oplog, one journaled move with recovery, `/files` list, rename-one page; Mac, then Pi on throwaway copies | Qwen3.8 27; **fsops by Opus 5.5** | Opus 5.5 for every mutation-path issue; Fable 5.2 reviews fsops; owner + Opus for Pi verification |
 | **2 Foundations** | errors, job worker, full scan with tags, reconcile diff, auth, CSRF, paging, search, backups | Qwen3.8 27 | Opus 5.5 (worker, security, reconcile); Sonnet 5.5 (rest) |
 | **3 Hashing + duplicates** | audio-payload hash (`8su`), hash job, duplicates page | Qwen3.8 27 | Opus 5.5 (hash ranges); Sonnet 5.5 (UI) |
