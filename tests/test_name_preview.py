@@ -1,4 +1,5 @@
 """Tests for NAME_PREVIEW report rendering (Phase 2)."""
+
 from datetime import datetime
 from pathlib import Path
 

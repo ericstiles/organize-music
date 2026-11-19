@@ -1,4 +1,5 @@
 """Tests for sanitising in naming.py (Phase 2)."""
+
 import pytest
 
 from organize_music.naming import sanitize

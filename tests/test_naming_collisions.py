@@ -1,4 +1,5 @@
 """Tests for collision detection in naming.py (Phase 2)."""
+
 from organize_music.naming import detect_collisions
 
 
