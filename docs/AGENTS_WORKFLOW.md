@@ -80,6 +80,33 @@ bd dolt push
 If the branch, the PR and the ticket notes disagree, do not merge or close;
 ask the owner.
 
+## Reviewer agent (automated)
+
+`scripts/review_prs.sh` runs the steps above unattended on the host. For each
+open `bd/*` PR it:
+
+1. checks the bead id agrees across branch, title and `Bead:` line, and that
+   the bead is `in_progress` with the PR link (otherwise it comments and skips);
+2. rebases the PR onto `origin/main` in a throwaway worktree and runs the
+   quality gate there and on `main`, keeping only new failures and findings;
+3. asks a headless Claude reviewer (read-only tools, instructions in
+   [REVIEWER_AGENT.md](REVIEWER_AGENT.md)) for a JSON verdict;
+4. on approval: approves (or comments, without `REVIEWER_GH_TOKEN`),
+   rebase-merges with `--match-head-commit`, closes the bead and pushes beads;
+5. otherwise: comments with each problem and files one `tech-debt` bead per
+   problem (`discovered-from` the ticket), leaving the ticket `in_progress`.
+
+A hidden `<!-- pr-review:<sha> -->` marker in its comment stops it reviewing
+the same head commit twice; a new push to the PR gets a fresh review.
+
+```bash
+scripts/review_prs.sh --dry-run --skip-agent   # what it would do, no Claude call
+scripts/review_prs.sh --watch 120              # review continuously
+```
+
+It runs the PR's tests on the host, outside the Hermes sandbox, so only run
+it on PRs from this repo's own agents.
+
 ## Recovery
 
 | Situation | Command |
