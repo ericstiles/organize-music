@@ -1,4 +1,5 @@
 """Tests for the pure naming module (Phase 2)."""
+
 from organize_music.models import Field, FileRecord, Source, TrackMetadata
 from organize_music.naming import render_name
 
@@ -23,14 +24,32 @@ def _track(artist="Carbon Leaf", album="Echo Echo", track=1, title="Learn To Fly
 
 def test_render_name_basic():
     t = _track()
-    assert render_name("${artist}/${album}/${track}-${title}.${ext}", t) == "Carbon Leaf/Echo Echo/1-Learn To Fly.mp3"
+    assert (
+        render_name("${artist}/${album}/${track}-${title}.${ext}", t)
+        == "Carbon_Leaf/Echo_Echo/1-Learn_To_Fly.mp3"
+    )
 
 
 def test_render_name_missing_field_empty():
     t = _track(album=None)
-    assert render_name("${artist}/${album}/${title}.${ext}", t) == "Carbon Leaf//Learn To Fly.mp3"
+    assert render_name("${artist}/${album}/${title}.${ext}", t) == "Carbon_Leaf/Learn_To_Fly.mp3"
 
 
 def test_render_name_unknown_placeholder_empty():
     t = _track()
-    assert render_name("${nope}/${title}.${ext}", t) == "/Learn To Fly.mp3"
+    assert render_name("${nope}/${title}.${ext}", t) == "Learn_To_Fly.mp3"
+
+
+def test_render_name_illegal_chars():
+    # A '/' inside a tag value must not create an extra path segment.
+    t = _track(artist="AC/DC")
+    result = render_name("${artist}/${title}.${ext}", t)
+    assert result == "AC_DC/Learn_To_Fly.mp3"
+    assert result.split("/")[0] == "AC_DC"
+    assert result.count("/") == 1
+
+
+def test_render_name_keeps_extension():
+    # A dot in the title is preserved; only the trailing extension is split off.
+    t = _track(title="a.b")
+    assert render_name("${title}.${ext}", t) == "a.b.mp3"
