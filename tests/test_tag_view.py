@@ -115,3 +115,25 @@ def test_render_raw_reports_a_read_failure() -> None:
 
     assert "broken.mp3" in text
     assert "unrecognised audio format" in text
+
+
+def test_render_raw_omits_audio_info_when_absent() -> None:
+    # A raw dump with no duration/bitrate lists only the tag pairs.
+    dump = RawTagDump(items=(("TPE1", "Zammuto"),), duration_seconds=None, bitrate_kbps=None)
+
+    text = render_raw("01 Yay.mp3", dump)
+
+    assert text.splitlines()[0] == "01 Yay.mp3"
+    assert "TPE1" in text and "Zammuto" in text
+    assert "kbps" not in text
+    assert "duration" not in text
+
+
+def test_render_raw_shows_only_duration() -> None:
+    # A raw dump with a duration but no bitrate exercises the duration branch only.
+    dump = RawTagDump(items=(("TPE1", "Zammuto"),), duration_seconds=219.0, bitrate_kbps=None)
+
+    text = render_raw("01 Yay.mp3", dump)
+
+    assert "219 s" in text
+    assert "kbps" not in text

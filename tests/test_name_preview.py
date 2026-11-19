@@ -36,3 +36,22 @@ def test_render_name_preview():
     text = render_name_preview_report(summary)
     assert "# Name Preview" in text
     assert "A/B/1-T.mp3" in text
+
+
+def test_render_name_preview_lists_collisions():
+    # Two proposals sharing a target path surface a Collisions section.
+    summary = NamePreviewSummary(
+        root=Path("/lib"),
+        generated_at=datetime(2026, 11, 9, 12, 0),
+        template="${title}.${ext}",
+        rows=[
+            (_track(), "T.mp3"),
+            (_track(), "T.mp3"),
+        ],
+        collisions={
+            "T.mp3": [("src/a/T.mp3", "aabb"), ("src/b/T.mp3", "ccdd")],
+        },
+    )
+    text = render_name_preview_report(summary)
+    assert "## Collisions" in text
+    assert "- `T.mp3`: 2 files" in text
