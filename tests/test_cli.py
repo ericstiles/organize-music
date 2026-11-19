@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from organize_music import cli, pipeline
+from organize_music import cli, cli_commands, pipeline
 
 
 def snapshot(root: Path) -> dict[str, tuple[int, int]]:
@@ -107,7 +107,7 @@ def test_ctrl_c_exits_130_and_keeps_progress(
     def interrupted(*_args: object, **_kwargs: object) -> None:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(cli, "collect_metadata", interrupted)
+    monkeypatch.setattr(cli_commands, "collect_metadata", interrupted)
 
     assert meta(library, tmp_path) == 130
     assert "re-run to resume" in capsys.readouterr().err
