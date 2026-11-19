@@ -18,7 +18,7 @@ ssh -o ConnectTimeout=8 -o BatchMode=yes "${PI_HOST}" true
 
 echo "==> Syncing ${REPO_ROOT} -> ${PI_HOST}:~/${PI_DIR}"
 rsync -a --delete \
-  --exclude '.git/' --exclude '.venv/' --exclude '.beads/' --exclude 'reports/' \
+  --exclude '.git/' --exclude '.venv/' --exclude '.beads/' --exclude 'reports/' --exclude 'state/' \
   --exclude '__pycache__/' --exclude '.pytest_cache/' --exclude '.ruff_cache/' \
   --exclude '*.egg-info/' --exclude '.coverage' \
   "${REPO_ROOT}/" "${PI_HOST}:${PI_DIR}/"

@@ -10,8 +10,10 @@
 # Root of the music library to scan. Also the default `root` when none is given.
 # library: /path/to/Music          # or export MUSIC_LIB
 
-# SQLite index (cache of tags and hashes). Must be OUTSIDE the library.
-index: ~/organize_music/state/index.db
+# SQLite index (cache of tags and hashes). Must be OUTSIDE the library, and
+# outside the deploy target (~/$PI_DIR, e.g. ~/organize_music) so that
+# `rsync --delete` cannot delete it. Lives in the XDG data dir by default.
+index: ~/.local/share/organize_music/index.db
 
 # Directory where Markdown reports are written. Must be OUTSIDE the library.
 reports: ~/organize_music/reports
