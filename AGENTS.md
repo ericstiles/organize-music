@@ -7,6 +7,54 @@ sandbox). It is an explicit opt-in to branch, commit, push and open PRs, and
 overrides the "Conservative: do not commit or push" default for this workflow
 only. Interactive sessions keep the Conservative profile.
 
+### Ticket lifecycle
+
+```
+ hermes-run (one Hermes session = one issue)
+        │
+        ▼
+ bd ready --exclude-type epic --sort priority → take the FIRST item
+        │                                        (empty → NO_READY_WORK)
+        ├─────────────── normal issue T ─────────────────┐
+        │                                                ▼
+        │                              claim T, branch bd/T from origin/main
+        │                              tests first → code → tests + lint
+        │                              push, open PR #N:
+        │                                title  <type>(T): <summary>
+        │                                body   Bead: T
+        │                                       Hermes-Session: <id>
+        │                              notes on T: "PR: <url>"
+        │                              T stays in_progress (blocked? → RUN_BLOCKED)
+        │                                                │
+        └──── review-fix issue F ────┐                   │
+                                     ▼                   │
+              claim F, check out the EXISTING branch bd/T│
+              read `gh pr view N --comments`             │
+              fix every point, push new commits to bd/T  │
+              (no new PR, no force-push)                 │
+              notes on F: "PR: <url>"; F stays in_progress
+                                     │                   │
+                                     └─────────┬─────────┘
+                                               ▼
+ hermes-review (host): new head commit on PR #N → checks + local reviewer model
+        │
+        ├── approve ──► rebase-merge PR #N
+        │               close T and every open review-fix issue for PR #N
+        │               → T's dependents become ready
+        │
+        ├── reject ───► comment on PR #N (each problem, file:line)
+        │               create review-fix issue F (label review-fix,
+        │                 discovered-from T, links PR #N, branch bd/T,
+        │                 Hermes-Session, review checklist)
+        │               problems outside the PR's scope → separate tech-debt issues
+        │               → next hermes-run picks F
+        │
+        └── 2nd reject of the same T ──► T blocked + label human (`bd human list`),
+                                         PR labelled needs-human → the owner decides
+```
+
+### Rules
+
 - Beads data comes from the Dolt file remote in `.beads/config.yaml`
   (`sync.remote`), which the sandbox mounts at the same path. It is not in git.
   Before anything else:
@@ -26,18 +74,38 @@ only. Interactive sessions keep the Conservative profile.
      yet unblocked). Do not pick by title, label or your own judgement, and
      never work an epic: epics are containers closed by their children. If the
      list is empty, print `NO_READY_WORK` and stop.
-  2. `bd update <id> --claim --json`, then `bd show <id>`.
-  3. Branch `bd/<id>` from latest `origin/main`. Implement test-first, then run
-     the quality gate: `ruff check . && ruff format --check . && pytest`.
+  2. `bd update <id> --claim --json`, then `bd show <id>`. If the issue has the
+     label `review-fix`, follow "Review-fix issues" below instead of steps 3-4.
+  3. `git fetch origin`, then branch `bd/<id>` from `origin/main`. Implement
+     test-first, then run the quality gate:
+     `ruff check . && ruff format --check . && pytest`.
   4. If tests pass: commit, push the branch, open a PR with `gh pr create`
-     (base `main`). Put the bead id in the PR title, e.g.
-     `fix(<id>): <summary>`, and a line `Bead: <id>` in the PR body. Then
+     (base `main`) titled `<type>(<id>): <summary>` (e.g. `fix(<id>): ...`)
+     with these lines in the body: `Bead: <id>` and
+     `Hermes-Session: <your session id>` (from your system prompt). Then
      `bd update <id> --append-notes "PR: <url>"`. Do NOT close the issue:
      it stays `in_progress` so its dependents stay blocked until the PR is
-     merged. The reviewer closes it on merge (see `docs/AGENTS_WORKFLOW.md`).
+     merged. The reviewer (`hermes-review`) closes it on merge (see
+     `docs/AGENTS_WORKFLOW.md`). Print the full PR URL on its own line in your
+     final message.
   5. If you hit a blocker: commit WIP to the branch, push it, run
      `bd update <id> --status blocked --append-notes "<why>"`, and print
      `RUN_BLOCKED`. Stop. Don't guess at requirements.
+- **Review-fix issues** (label `review-fix`, created by `hermes-review` when it
+  rejects a PR). The issue names the PR number `N`, the branch `bd/<T>` and the
+  original issue `T`.
+  1. `git fetch origin`, then check out the EXISTING branch:
+     `git checkout -B bd/<T> origin/bd/<T>`. Never branch from main.
+  2. Read the review: `gh pr view <N> --comments` and the issue's checklist.
+  3. Fix every point. Tests first for each bug, as in the issue sections below.
+     Run the quality gate.
+  4. Commit and `git push origin bd/<T>`. Do NOT open a new PR, do NOT
+     force-push, do NOT touch the PR title or the `Bead: <T>` line.
+  5. `bd update <F> --append-notes "PR: <url>"`. Do NOT close F or T: the
+     reviewer closes both when it merges the PR. Print the PR URL on its own
+     line.
+  6. A point you cannot fix in this PR's scope: file it as a new issue (rules
+     below) and say so in a PR comment (`gh pr comment <N>`).
 - You ARE allowed and expected to create new beads issues. Do not ask first.
   File one with `bd create "<title>" -t bug|task -p <0-4> --deps discovered-from:<id> -d "<self-contained description>" --acceptance "<checks a test can assert>" --silent`
   whenever you:
