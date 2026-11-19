@@ -71,10 +71,14 @@ def render_name(template: str, track: TrackMetadata) -> str:
         cleaned = sanitize(stem)
         if cleaned:
             out.append(f"{cleaned}.{ext}")
+        else:
+            raise ValueError("empty file name")
     else:
         cleaned = sanitize(last)
         if cleaned:
             out.append(cleaned)
+        else:
+            raise ValueError("empty file name")
     return "/".join(out)
 
 

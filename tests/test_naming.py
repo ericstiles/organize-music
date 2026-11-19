@@ -1,5 +1,7 @@
 """Tests for the pure naming module (Phase 2)."""
 
+import pytest
+
 from organize_music.models import Field, FileRecord, Source, TrackMetadata
 from organize_music.naming import render_name
 
@@ -53,3 +55,16 @@ def test_render_name_keeps_extension():
     # A dot in the title is preserved; only the trailing extension is split off.
     t = _track(title="a.b")
     assert render_name("${title}.${ext}", t) == "a.b.mp3"
+
+
+def test_render_name_empty_stem_is_rejected():
+    # An empty final stem (a missing title, or a dot-only title that sanitises
+    # to nothing) must not silently become a folder path. It raises so that a
+    # later move never targets a folder as a file name.
+    for title in (None, "..."):
+        with pytest.raises(ValueError, match="empty file name"):
+            render_name("${artist}/${album}/${title}.${ext}", _track(title=title))
+    # The dotless last segment (no '.') takes the no-extension branch and must
+    # raise on an empty stem too, rather than returning a folder path.
+    with pytest.raises(ValueError, match="empty file name"):
+        render_name("${artist}/${title}", _track(title=None))
