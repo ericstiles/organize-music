@@ -15,7 +15,7 @@ import yaml
 
 DEFAULTS: dict[str, object] = {
     "library": None,
-    "index": "~/organize_music/state/index.db",
+    "index": "~/.local/share/organize_music/index.db",
     "reports": "~/organize_music/reports",
     "quarantine": None,
     "folder_format": "${artist}/${album}/${track}-${title}.${ext}",

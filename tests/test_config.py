@@ -159,3 +159,28 @@ def test_quarantine_defaults_next_to_library_when_only_library_is_set(
     config = load_config(None)
 
     assert config.quarantine == tmp_path / "lib" / "_quarantine"
+
+
+def test_default_index_outside_deploy_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty"))
+    monkeypatch.delenv("MUSIC_LIB", raising=False)
+    monkeypatch.delenv("MUSIC_QUARANTINE", raising=False)
+
+    config = load_config(None)
+
+    # The default index must live under the XDG data dir, never under the
+    # deploy target (~/$PI_DIR, e.g. ~/organize_music), so an rsync --delete
+    # of the deploy dir cannot delete the index database.
+    expected = tmp_path / ".local" / "share" / "organize_music" / "index.db"
+    assert config.index == expected
+    assert not config.index.is_relative_to(tmp_path / "organize_music")
+
+
+def test_deploy_script_excludes_state_directory() -> None:
+    deploy = Path(__file__).resolve().parent.parent / "scripts" / "deploy_to_pi.sh"
+    assert deploy.is_file()
+
+    # rsync --delete into the deploy dir must exclude state/ so the index
+    # database (which lives there by default) survives every deploy.
+    assert "--exclude 'state/'" in deploy.read_text(encoding="utf-8")
