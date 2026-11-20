@@ -5,6 +5,8 @@ directory.  When ``OM_FS_TEST_DIR`` is set the suite runs inside that directory
 (see ``conftest.py``) so the same tests run against the Pi's exFAT mount.
 """
 
+import ctypes
+import errno
 import os
 import types
 from pathlib import Path
@@ -102,6 +104,49 @@ def test_rename_noreplace_missing_symbol_raises_unsupported_and_unmoved(
     assert src.exists()
     assert not dst.exists()
     assert src.read_text() == "keep-me"
+
+
+def _fake_rename_lib(calls: list[tuple[object, ...]], rc: int, err: int) -> types.SimpleNamespace:
+    """Both platform symbols: record each call's arguments, set errno ``err``, return ``rc``."""
+
+    def fn(*args: object) -> int:
+        calls.append(args)
+        ctypes.set_errno(err)
+        return rc
+
+    return types.SimpleNamespace(renamex_np=fn, renameat2=fn)
+
+
+def test_rename_noreplace_refuses_existing_name_before_the_syscall(
+    fs_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # On case-insensitive APFS, renamex_np(RENAME_EXCL) lets 'a.mp3' -> 'A.mp3' through (same
+    # file), so the occupied name must be refused before the system call, on every platform.
+    src = fs_dir / "source.txt"
+    dst = fs_dir / "dest.txt"
+    src.write_text("s")
+    dst.write_text("d")
+    calls: list[tuple[object, ...]] = []
+    monkeypatch.setattr(primitives, "_LIB", _fake_rename_lib(calls, 0, 0))
+    with pytest.raises(DestinationExists):
+        rename_noreplace(src, dst)
+    assert calls == []
+
+
+def test_rename_noreplace_eexist_from_the_syscall_raises_destination_exists(
+    fs_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A destination created after the check is still caught by the atomic no-replace flag.
+    src = fs_dir / "source.txt"
+    src.write_text("s")
+    calls: list[tuple[object, ...]] = []
+    monkeypatch.setattr(primitives, "_LIB", _fake_rename_lib(calls, -1, errno.EEXIST))
+    with pytest.raises(DestinationExists):
+        rename_noreplace(src, fs_dir / "late.txt")
+    assert len(calls) == 1
+    assert src.read_text() == "s"
 
 
 def test_rename_noreplace_never_falls_back_to_os_rename(
