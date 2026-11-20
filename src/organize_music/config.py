@@ -20,9 +20,19 @@ DEFAULTS: dict[str, object] = {
     "quarantine": None,
     "folder_format": "${artist}/${album}/${track}-${title}.${ext}",
     "skip_folders": ["Music2", "music", "OrganizesByGenre", "ipod_favs", "osx_sd_card_a_to_b"],
+    # Web-server / mutation settings (Phase 1). No CLI equivalents yet.
+    "library_mount": "/media/ets04uga/Extreme",
+    "work_dir": "/media/ets04uga/Extreme/PlaceHereToKeepFromWork/_organize_music_work",
+    "purge_dir": "/media/ets04uga/Extreme/PlaceHereToKeepFromWork/purge",
+    "state_dir": "~/.local/share/organize_music",
+    "bind_host": "127.0.0.1",
+    "bind_port": 8765,
+    "mutations_enabled": False,
 }
 _PATH_KEYS = ("library", "index", "reports", "quarantine")
-_OUTSIDE_LIBRARY = ("index", "reports", "quarantine")
+# Everything below must live outside the library root, so rsync --delete and a
+# stray scan can never touch it. work_dir/purge_dir join index/reports/quarantine.
+_OUTSIDE_LIBRARY = ("index", "reports", "quarantine", "work_dir", "purge_dir")
 
 
 class ConfigError(Exception):
@@ -37,6 +47,14 @@ class Config:
     quarantine: Path | None
     folder_format: str
     skip_folders: tuple[str, ...]
+    # Web-server / mutation settings (Phase 1).
+    library_mount: Path
+    work_dir: Path
+    purge_dir: Path
+    state_dir: Path
+    bind_host: str
+    bind_port: int
+    mutations_enabled: bool
 
 
 def _default_path() -> Path:
@@ -85,6 +103,19 @@ def _as_str_list(key: str, value: object) -> tuple[str, ...]:
     return tuple(value)
 
 
+def _coerce_bool(key: str, value: object) -> bool:
+    # bool is a subclass of int, so test it first: 1/0 must not pass.
+    if not isinstance(value, bool):
+        raise ConfigError(f"{key} must be a boolean, got {type(value).__name__}")
+    return value
+
+
+def _coerce_int(key: str, value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigError(f"{key} must be an integer, got {type(value).__name__}")
+    return value
+
+
 def _validate_layout(config: Config) -> None:
     if config.library is None:
         return
@@ -107,6 +138,10 @@ def load_config(path: Path | None, overrides: Mapping[str, object] | None = None
     if quarantine is None and library is not None:
         quarantine = library.parent / "_quarantine"
 
+    bind_port = _coerce_int("bind_port", values["bind_port"])
+    if not 1 <= bind_port <= 65535:
+        raise ConfigError(f"bind_port must be 1-65535, got {bind_port}")
+
     config = Config(
         library=library,
         index=_coerce("index", values["index"]),
@@ -114,6 +149,13 @@ def load_config(path: Path | None, overrides: Mapping[str, object] | None = None
         quarantine=quarantine,
         folder_format=_as_str("folder_format", values["folder_format"]),
         skip_folders=_as_str_list("skip_folders", values["skip_folders"]),
+        library_mount=_coerce("library_mount", values["library_mount"]),
+        work_dir=_coerce("work_dir", values["work_dir"]),
+        purge_dir=_coerce("purge_dir", values["purge_dir"]),
+        state_dir=_coerce("state_dir", values["state_dir"]),
+        bind_host=_as_str("bind_host", values["bind_host"]),
+        bind_port=bind_port,
+        mutations_enabled=_coerce_bool("mutations_enabled", values["mutations_enabled"]),
     )
     _validate_layout(config)
     return config
