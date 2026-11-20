@@ -66,6 +66,11 @@ def rename_noreplace(src: Path, dst: Path) -> None:
     (missing symbol, ``ENOSYS`` or ``EINVAL``) raises :class:`UnsupportedPlatform`
     and moves nothing.  There is no fallback to a replacing rename.
     """
+    # An occupied name is refused first: on case-insensitive APFS renamex_np(RENAME_EXCL) lets a
+    # case-only rename of the same file ('a.mp3' -> 'A.mp3') through.  lexists() is
+    # case-insensitive there.  The atomic flag below still covers a dst created after this check.
+    if os.path.lexists(dst):
+        raise DestinationExists(f"destination already exists: {dst}")
     src_b = os.fsencode(src)
     dst_b = os.fsencode(dst)
 
