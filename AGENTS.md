@@ -49,6 +49,10 @@ only. Interactive sessions keep the Conservative profile.
         │               problems outside the PR's scope → separate tech-debt issues
         │               → next hermes-run picks F
         │
+        ├── does not rebase onto main ──► rebase-fix issue F (labels review-fix +
+        │                                 rebase-conflict); NOT a rejection strike
+        │                                 (after 3 rebase fixes → human, as below)
+        │
         └── 2nd reject of the same T ──► T blocked + label human (`bd human list`),
                                          PR labelled needs-human → the owner decides
 ```
@@ -113,6 +117,13 @@ only. Interactive sessions keep the Conservative profile.
      line.
   6. A point you cannot fix in this PR's scope: file it as a new issue (rules
      below) and say so in a PR comment (`gh pr comment <N>`).
+  - **Rebase fixes** (labels `review-fix` and `rebase-conflict`, title
+    `Rebase PR #N onto main (T)`): the PR only conflicts with main. After step 1,
+    run `git rebase origin/main`, resolve each conflict keeping the intent of
+    both sides, then run the quality gate. Push with
+    `git push --force-with-lease origin bd/<T>`: the ONLY case where a
+    force-push is allowed, and only to that branch. Change nothing else. Then
+    step 5.
 - You ARE allowed and expected to create new beads issues. Do not ask first.
   File one with `bd create "<title>" -t bug|task -p <0-4> --deps discovered-from:<id> -d "<self-contained description>" --acceptance "<checks a test can assert>" --silent`
   whenever you:
@@ -149,7 +160,8 @@ only. Interactive sessions keep the Conservative profile.
      first; only `discovered-from:<id>` for issues you found while working.
   Set priority by impact: data loss or security is P1, wrong behavior is P2,
   polish or docs is P3.
-- Never push to main, never merge, never force-push, never edit CI/secrets
+- Never push to main, never merge, never force-push (sole exception: a rebase
+  fix, `--force-with-lease` to its `bd/<T>` branch), never edit CI/secrets
   config, never commit `.envrc.local` or real host names, IPs or paths (use
   the `$PI_HOST` / `$MUSIC_LIB` environment variables).
 - Sync beads before finishing (`bd dolt push`).
