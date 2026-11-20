@@ -62,7 +62,8 @@ def test_rename_noreplace_destination_exists_leaves_both_untouched(
     # Neither file changed on disk.
     assert src.read_bytes() == b"original-source-bytes"
     assert dst.read_bytes() == b"original-dest-bytes"
-    assert os.listdir(fs_dir) == ["dest.txt", "source.txt"]
+    # os.listdir order is filesystem-dependent, so compare as a set.
+    assert set(os.listdir(fs_dir)) == {"dest.txt", "source.txt"}
 
 
 def test_rename_noreplace_case_only_raises_on_case_insensitive(
@@ -75,10 +76,13 @@ def test_rename_noreplace_case_only_raises_on_case_insensitive(
     src.write_text("data")
     if not _is_case_insensitive(fs_dir):
         pytest.skip("case-sensitive filesystem: 'a.mp3' and 'A.mp3' are distinct names")
-    with pytest.raises(DestinationExists):
-        rename_noreplace(src, dst)
+    try:
+        with pytest.raises(DestinationExists):
+            rename_noreplace(src, dst)
+    except UnsupportedPlatform:
+        pytest.skip("this case-insensitive platform has no atomic no-replace rename")
     # The only on-disk entry is the original lowercase name.
-    assert os.listdir(d) == ["a.mp3"]
+    assert set(os.listdir(d)) == {"a.mp3"}
     assert src.read_text() == "data"
 
 
@@ -300,7 +304,11 @@ def test_same_device_true_for_single_and_empty() -> None:
 def test_same_device_false_for_distinct_device(fs_dir: Path) -> None:
     a = fs_dir / "a.txt"
     a.write_text("1")
+    # /proc exists on Linux but not on macOS; stat the candidate only when it is
+    # present so the suite runs on every platform.
     candidate = Path("/proc")
+    if not candidate.exists():
+        pytest.skip("/proc is not available on this platform")
     if os.stat(a).st_dev == os.stat(candidate).st_dev:
         pytest.skip("no distinct device available to test against")
     assert same_device(a, candidate) is False
