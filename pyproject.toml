@@ -22,6 +22,9 @@ dependencies = [
 [project.scripts]
 organize-music = "organize_music.cli:main"
 
+[tool.setuptools.package-data]
+organize_music = ["db/migrations/*.sql"]
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",

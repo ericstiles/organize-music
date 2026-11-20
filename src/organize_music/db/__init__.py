@@ -13,5 +13,14 @@ from organize_music.db.connection import (
     open_reader,
     open_writer,
 )
+from organize_music.db.migrations import SchemaTooNew, available, migrate
 
-__all__ = ["WriterBusy", "WriterLock", "open_reader", "open_writer"]
+__all__ = [
+    "WriterBusy",
+    "WriterLock",
+    "open_reader",
+    "open_writer",
+    "SchemaTooNew",
+    "available",
+    "migrate",
+]
