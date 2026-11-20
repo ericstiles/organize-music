@@ -13,7 +13,8 @@ only. Interactive sessions keep the Conservative profile.
  hermes-run (one Hermes session = one issue)
         │
         ▼
- bd ready --exclude-type epic --sort priority → take the FIRST item
+ bd ready --exclude-type epic --exclude-label model:opus-5.5,model:fable-5.2
+          --sort priority → take the FIRST item
         │                                        (empty → NO_READY_WORK)
         ├─────────────── normal issue T ─────────────────┐
         │                                                ▼
@@ -80,9 +81,10 @@ only. Interactive sessions keep the Conservative profile.
 - Then `bd prime`. Use `bd` for all tracking; no markdown TODOs.
 - Do exactly ONE issue per session:
   1. Pick the issue with exactly this command, and take the FIRST item:
-     `bd ready --json --exclude-type epic --sort priority`
+     `bd ready --json --exclude-type epic --exclude-label model:opus-5.5,model:fable-5.2 --sort priority`
      (highest priority first; dependencies already filter out anything not
-     yet unblocked). Do not pick by title, label or your own judgement, and
+     yet unblocked; issues labelled for Claude Opus or Fable are left to Claude
+     sessions, never claim one). Do not pick by title, label or your own judgement, and
      never work an epic: epics are containers closed by their children. If the
      list is empty, print `NO_READY_WORK` and stop.
   2. `bd update <id> --claim --json`, then `bd show <id>`. If the issue has the
