@@ -27,7 +27,8 @@ def test_defaults_when_no_file_and_no_xdg(tmp_path: Path, monkeypatch: pytest.Mo
     assert "ipod_favs" in config.skip_folders
 
 
-def test_file_values_win_over_defaults(tmp_path: Path) -> None:
+def test_file_values_win_over_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", "/home/pi")
     path = write(
         tmp_path,
         "library: /music\nindex: /state/i.db\nreports: /out\n"
@@ -44,6 +45,13 @@ def test_file_values_win_over_defaults(tmp_path: Path) -> None:
         quarantine=Path("/q"),
         folder_format="${artist}/${title}.${ext}",
         skip_folders=("junk", "copies"),
+        library_mount=Path("/media/ets04uga/Extreme"),
+        work_dir=Path("/media/ets04uga/Extreme/PlaceHereToKeepFromWork/_organize_music_work"),
+        purge_dir=Path("/media/ets04uga/Extreme/PlaceHereToKeepFromWork/purge"),
+        state_dir=Path("/home/pi/.local/share/organize_music"),
+        bind_host="127.0.0.1",
+        bind_port=8765,
+        mutations_enabled=False,
     )
 
 
@@ -184,3 +192,63 @@ def test_deploy_script_excludes_state_directory() -> None:
     # rsync --delete into the deploy dir must exclude state/ so the index
     # database (which lives there by default) survives every deploy.
     assert "--exclude 'state/'" in deploy.read_text(encoding="utf-8")
+
+
+def test_new_web_keys_have_documented_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty"))
+    monkeypatch.setenv("HOME", "/home/pi")
+    monkeypatch.delenv("MUSIC_LIB", raising=False)
+    monkeypatch.delenv("MUSIC_QUARANTINE", raising=False)
+
+    config = load_config(None)
+
+    assert config.library_mount == Path("/media/ets04uga/Extreme")
+    assert config.work_dir == Path(
+        "/media/ets04uga/Extreme/PlaceHereToKeepFromWork/_organize_music_work"
+    )
+    assert config.purge_dir == Path("/media/ets04uga/Extreme/PlaceHereToKeepFromWork/purge")
+    assert config.state_dir == Path("/home/pi/.local/share/organize_music")
+    assert config.bind_host == "127.0.0.1"
+    assert config.bind_port == 8765
+    assert config.mutations_enabled is False
+
+
+def test_state_dir_default_expands_user(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", "/home/pi")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty"))
+
+    config = load_config(None)
+
+    assert config.state_dir == Path("/home/pi/.local/share/organize_music")
+
+
+def test_work_dir_inside_library_is_rejected(tmp_path: Path) -> None:
+    path = write(tmp_path, "library: /music\nwork_dir: /music/here\n")
+
+    with pytest.raises(ConfigError, match="work_dir.*outside"):
+        load_config(path)
+
+
+def test_purge_dir_inside_library_is_rejected(tmp_path: Path) -> None:
+    path = write(tmp_path, "library: /music\npurge_dir: /music/here\n")
+
+    with pytest.raises(ConfigError, match="purge_dir.*outside"):
+        load_config(path)
+
+
+def test_bind_port_zero_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="bind_port"):
+        load_config(write(tmp_path, "bind_port: 0\n"))
+
+
+def test_bind_port_above_65535_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="bind_port"):
+        load_config(write(tmp_path, "bind_port: 70000\n"))
+
+
+def test_mutation_flag_must_be_a_bool(tmp_path: Path) -> None:
+    # YAML `yes` parses to the bool True, so pin a non-bool string explicitly.
+    with pytest.raises(ConfigError, match="mutations_enabled"):
+        load_config(write(tmp_path, "mutations_enabled: 'yes'\n"))

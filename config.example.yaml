@@ -34,3 +34,33 @@ skip_folders:
   - OrganizesByGenre
   - ipod_favs
   - osx_sd_card_a_to_b
+
+# --- Web-server and mutation settings (Phase 1) --------------------------------
+# The CLI never needed these; the web server and mutation engine do.
+
+# Mount point of the exFAT library volume. Checked at server startup
+# (os.path.ismount + that the library root exists); no CLI equivalent.
+library_mount: /media/ets04uga/Extreme
+
+# Scratch space for tmp copies and the JSONL operation-log mirror. Must be on the
+# same SSD as the library (so a move is an instant rename) and OUTSIDE the library.
+work_dir: /media/ets04uga/Extreme/PlaceHereToKeepFromWork/_organize_music_work
+
+# Where originals are parked instead of deleted. The tool never deletes a library
+# file; the owner empties this folder by hand. Same SSD, OUTSIDE the library.
+purge_dir: /media/ets04uga/Extreme/PlaceHereToKeepFromWork/purge
+
+# Where library.db, backups, auth and the writer lock live (the XDG data dir).
+# Kept off the exFAT volume and off the rsync deploy target.
+state_dir: ~/.local/share/organize_music
+
+# Address the web server binds. 127.0.0.1 keeps it on localhost; set the Pi's LAN
+# address to reach it on the network. Never 0.0.0.0 by default.
+bind_host: 127.0.0.1
+
+# Port the web server listens on (1-65535).
+bind_port: 8765
+
+# With this off the preview works but confirm returns 403 MUTATIONS_DISABLED, so
+# the tool can never move or edit a file until the owner turns it on.
+mutations_enabled: false
