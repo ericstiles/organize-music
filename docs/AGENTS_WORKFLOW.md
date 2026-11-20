@@ -43,10 +43,13 @@ workflow" section of [AGENTS.md](../AGENTS.md).
 The first item of:
 
 ```bash
-bd ready --json --exclude-type epic --sort priority
+bd ready --json --exclude-type epic --exclude-label model:opus-5.5,model:fable-5.2 --sort priority
 ```
 
-Dependencies decide what is eligible; priority decides the order. To change
+Dependencies decide what is eligible; priority decides the order. Issues labelled
+`model:opus-5.5` or `model:fable-5.2` (platform-specific work and the paired `-R` reviews) are
+for Claude sessions, so Hermes never sees them; unlabelled issues (review-fix, tech-debt) and
+`model:qwen3.8-27` issues stay eligible. A new model label must be added to this list. To change
 what runs next, change priority (`bd update <id> -p 0`) or dependencies
 (`bd dep add` / `bd dep remove`).
 
