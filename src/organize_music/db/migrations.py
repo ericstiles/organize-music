@@ -12,9 +12,8 @@ Pending migrations are applied through ``yoyo-migrations`` 9.0.0, which records
 each applied migration in its own ``_yoyo_migration`` table. yoyo opens its own
 connection to the same file; the caller's ``conn`` observes the committed
 changes. A DB made by the old runner (``user_version`` > 0 but no
-``_yoyo_migration`` table) is not adopted here -- the runner raises
-``RuntimeError`` before touching anything, so 0001 is never re-run on it -- and
-step 1b replaces that refusal with adoption.
+``_yoyo_migration`` table) is adopted: its already-applied migrations are
+marked in yoyo without being re-run, so 0001 runs on it exactly once.
 """
 
 import re
@@ -89,7 +88,10 @@ def migrate(
     ``SchemaTooNew`` and is left untouched. When migrations are pending on a DB
     that already has a schema (``user_version > 0``), an online backup is taken
     first. Each pending file is then applied through yoyo in its own transaction
-    and the ``user_version`` is bumped to that file's version.
+    and the ``user_version`` is bumped to that file's version. A DB made by the
+    old runner (a ``user_version`` but no yoyo table) is adopted: its applied
+    migrations are marked in yoyo without being run. yoyo's connection is closed
+    when the call returns.
     """
     user_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
     migrations = available(migrations_dir)
@@ -100,24 +102,30 @@ def migrate(
             f"database user_version {user_version} is newer than the "
             f"code's schema version {max_available}"
         )
-    # A DB the old runner made (a version but no yoyo table) is not adopted in
-    # step 1a: refuse before touching anything so 0001 is never re-run on it.
-    if user_version > 0 and not _yoyo_manages(conn):
-        raise RuntimeError(
-            f"database user_version {user_version} was made by the old migration "
-            f"runner and is not adopted yet; adoption arrives in a later step"
-        )
+    # A DB the old runner made (a version but no yoyo table) is adopted: its
+    # already-applied migrations are marked in yoyo WITHOUT being run, so 0001
+    # is never re-executed on top of the existing schema.
     if pending and user_version > 0:
         _backup(conn, backups_dir, user_version, now)
-    if not pending:
+    if not pending and not (user_version > 0 and not _yoyo_manages(conn)):
         return user_version
     directory = _MIGRATIONS_DIR if migrations_dir is None else migrations_dir
-    backend = yoyo.get_backend(f"sqlite:///{db_path}")
     yoyo_migrations = yoyo.read_migrations(str(directory))
     to_apply = [m for m in yoyo_migrations if _version_of(m) > user_version]
-    with backend.lock():
-        for migration in to_apply:
-            backend.apply_one(migration)
-            conn.execute(f"PRAGMA user_version = {_version_of(migration)}")
-            conn.commit()
+    to_adopt = [m for m in yoyo_migrations if _version_of(m) <= user_version]
+    backend = yoyo.get_backend(f"sqlite:///{db_path}")
+    try:
+        with backend.lock():
+            # Adoption: record the migrations the old runner already applied in
+            # yoyo without executing them, so their SQL runs on this DB once.
+            if user_version > 0 and not _yoyo_manages(conn):
+                backend.mark_migrations(to_adopt)
+            # Apply the remaining pending migrations, each in its own
+            # transaction, and bump user_version as they land.
+            for migration in to_apply:
+                backend.apply_one(migration)
+                conn.execute(f"PRAGMA user_version = {_version_of(migration)}")
+                conn.commit()
+    finally:
+        backend.connection.close()
     return int(conn.execute("PRAGMA user_version").fetchone()[0])

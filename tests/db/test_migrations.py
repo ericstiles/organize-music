@@ -352,26 +352,87 @@ def test_failing_migration_rolls_back_and_is_not_recorded(tmp_path):
         conn.close()
 
 
-def test_old_runner_db_refuses_0001(tmp_path):
-    """A DB made by the old runner is not adopted in step 1a.
+def _old_runner_db(path: Path) -> None:
+    """Build a DB exactly as b8p.5's hand-rolled runner did.
 
-    ``user_version`` > 0 but no ``_yoyo_migration`` table: the runner raises
-    ``RuntimeError`` before touching anything, so 0001 is never re-run on it
-    and the file stays byte-identical (no backup, no schema change).
+    The old runner executed ``0001_initial.sql`` directly and set
+    ``PRAGMA user_version = 1`` -- so the schema is present but yoyo's
+    applied-migration table is not. Simulating it here (instead of calling
+    ``migrate``) is what proves adoption never re-runs 0001.
+    """
+    raw = sqlite3.connect(str(path))
+    try:
+        raw.executescript(available()[0][1])
+        raw.execute("PRAGMA user_version = 1")
+        raw.commit()
+    finally:
+        raw.close()
+
+
+def test_old_runner_db_is_adopted_without_rerunning_0001(tmp_path):
+    """A DB made by the old runner is adopted in step 1b, not refused.
+
+    ``user_version`` 1 but no ``_yoyo_migration`` table: the runner marks the
+    already-shipped 0001 applied WITHOUT executing it, so 0001 is never
+    re-run (no duplicate-``CREATE`` error) and the schema is untouched.
+    Nothing is pending, so no backup is taken.
     """
     path = tmp_path / "library.db"
+    _old_runner_db(path)
     conn = open_conn(path)
-    conn.execute("PRAGMA user_version = 1")
-    conn.commit()
-    db_bytes = path.read_bytes()
     backups = tmp_path / "backups"
-    with pytest.raises(RuntimeError):
-        migrate(conn, path, backups, "2026-01-01T00:00:00Z")
-    # The DB is untouched: still version 1, byte-identical, no backup taken.
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
-    assert path.read_bytes() == db_bytes
-    assert not backups.exists() or list(backups.iterdir()) == []
-    conn.close()
+    try:
+        # No exception: 0001 is not re-executed on top of the existing schema.
+        assert migrate(conn, path, backups, "2026-01-01T00:00:00Z") == 1
+        # yoyo now records 0001 as applied ...
+        ids = [r[0] for r in conn.execute("SELECT migration_id FROM _yoyo_migration").fetchall()]
+        assert ids == ["0001_initial"]
+        # ... user_version is still 1, and the schema was not recreated.
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        # No backup: nothing pending.
+        assert not backups.exists() or list(backups.iterdir()) == []
+    finally:
+        conn.close()
+
+
+def test_old_runner_db_adopted_then_pending_migration_applies(tmp_path):
+    """Adoption first, then the next pending migration applies normally.
+
+    Same old-runner DB plus a fake 0002: the runner marks 0001 applied
+    (adoption) and then applies 0002. Because something is pending on an
+    existing schema, an online backup is taken first -- before 0002, and so
+    0002's table is absent from the backup.
+    """
+    path = tmp_path / "library.db"
+    now = "2026-03-01T12:00:00Z"
+    backups = tmp_path / "backups"
+    _old_runner_db(path)
+
+    fake_dir = tmp_path / "migrations"
+    fake_dir.mkdir()
+    _copy_shipped_0001(fake_dir)
+    _fake_0002(fake_dir)
+
+    conn = open_conn(path)
+    try:
+        assert migrate(conn, path, backups, now, migrations_dir=fake_dir) == 2
+        # 0001 was adopted (marked, not run) and 0002 was applied.
+        ids = [r[0] for r in conn.execute("SELECT migration_id FROM _yoyo_migration").fetchall()]
+        assert ids == ["0001_initial", "0002_fake"]
+        assert "marker_0002" in {
+            r[0] for r in conn.execute("SELECT name FROM sqlite_master").fetchall()
+        }
+        backup = backups / f"library-v1-{now}.db"
+        assert backup.exists()
+        # The backup predates 0002, so its table is not in the backup.
+        backup_conn = open_conn(backup)
+        try:
+            names = {r[0] for r in backup_conn.execute("SELECT name FROM sqlite_master").fetchall()}
+            assert "marker_0002" not in names
+        finally:
+            backup_conn.close()
+    finally:
+        conn.close()
 
 
 def test_package_has_no_rollback_files_and_no_drop_statements():
