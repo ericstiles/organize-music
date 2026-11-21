@@ -1,5 +1,7 @@
 # CLAUDE.md - AI Development Orientation Guide
 
+Project-specific agent rules and verified facts: @AGENTS_LOCAL.md
+
 ## Project Overview
 `organize_music`: CLI tools and automation scripts for organizing a music library (metadata extraction, audio file de-duplication, and directory restructuring). Companion tools for music stored on the Raspberry Pi 5 SSD.
 
