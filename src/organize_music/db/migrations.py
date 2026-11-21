@@ -7,17 +7,30 @@ Nothing ever removes a table on a version mismatch, and a DB whose
 ``user_version`` exceeds the newest file refuses to open (``SchemaTooNew``).
 Before applying any migration onto an existing schema the runner takes an online
 backup so a bad migration can be rolled back from disk.
+
+Pending migrations are applied through ``yoyo-migrations`` 9.0.0, which records
+each applied migration in its own ``_yoyo_migration`` table. yoyo opens its own
+connection to the same file; the caller's ``conn`` observes the committed
+changes. A DB made by the old runner (``user_version`` > 0 but no
+``_yoyo_migration`` table) is not adopted here -- the runner raises
+``RuntimeError`` before touching anything, so 0001 is never re-run on it -- and
+step 1b replaces that refusal with adoption.
 """
 
 import re
 import sqlite3
 from pathlib import Path
 
+import yoyo
+from yoyo.migrations import Migration
+
 __all__ = ["SchemaTooNew", "available", "migrate"]
 
 # The migrations directory shipped with the package.
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 _FILE = re.compile(r"^(\d+)_")
+# yoyo's table of applied migrations (plural in the docs, singular on disk).
+_YOYO_TABLE = "_yoyo_migration"
 
 
 class SchemaTooNew(Exception):
@@ -36,6 +49,19 @@ def available(migrations_dir: Path | None = None) -> list[tuple[int, str]]:
         found.append((version, path.read_text(encoding="utf-8")))
     found.sort(key=lambda pair: pair[0])
     return found
+
+
+def _version_of(migration: Migration) -> int:
+    """The numeric version encoded in a yoyo migration id, e.g. ``0002_fake`` -> 2."""
+    return int(migration.id.split("_", 1)[0])
+
+
+def _yoyo_manages(conn: sqlite3.Connection) -> bool:
+    """True if the DB already has yoyo's applied-migration table."""
+    row = conn.execute(
+        f"SELECT 1 FROM sqlite_master WHERE type='table' AND name='{_YOYO_TABLE}'"
+    ).fetchone()
+    return row is not None
 
 
 def _backup(conn: sqlite3.Connection, backups_dir: Path, old_version: int, now: str) -> None:
@@ -62,8 +88,8 @@ def migrate(
     A database whose ``user_version`` exceeds the newest available file raises
     ``SchemaTooNew`` and is left untouched. When migrations are pending on a DB
     that already has a schema (``user_version > 0``), an online backup is taken
-    first. Each pending file is then applied in its own transaction and the
-    ``user_version`` is bumped to that file's version.
+    first. Each pending file is then applied through yoyo in its own transaction
+    and the ``user_version`` is bumped to that file's version.
     """
     user_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
     migrations = available(migrations_dir)
@@ -74,10 +100,24 @@ def migrate(
             f"database user_version {user_version} is newer than the "
             f"code's schema version {max_available}"
         )
+    # A DB the old runner made (a version but no yoyo table) is not adopted in
+    # step 1a: refuse before touching anything so 0001 is never re-run on it.
+    if user_version > 0 and not _yoyo_manages(conn):
+        raise RuntimeError(
+            f"database user_version {user_version} was made by the old migration "
+            f"runner and is not adopted yet; adoption arrives in a later step"
+        )
     if pending and user_version > 0:
         _backup(conn, backups_dir, user_version, now)
-    for version, sql in pending:
-        conn.executescript(sql)
-        conn.execute(f"PRAGMA user_version = {version}")
-        conn.commit()
+    if not pending:
+        return user_version
+    directory = _MIGRATIONS_DIR if migrations_dir is None else migrations_dir
+    backend = yoyo.get_backend(f"sqlite:///{db_path}")
+    yoyo_migrations = yoyo.read_migrations(str(directory))
+    to_apply = [m for m in yoyo_migrations if _version_of(m) > user_version]
+    with backend.lock():
+        for migration in to_apply:
+            backend.apply_one(migration)
+            conn.execute(f"PRAGMA user_version = {_version_of(migration)}")
+            conn.commit()
     return int(conn.execute("PRAGMA user_version").fetchone()[0])

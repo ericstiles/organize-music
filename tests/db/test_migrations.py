@@ -4,6 +4,13 @@ library.db is the system of record. Migrations are forward-only numbered SQL
 files in ``db/migrations/NNNN_name.sql``; a DB newer than the code refuses to
 open (``SchemaTooNew``), and before applying any migration on an existing
 schema the runner takes an online backup. Nothing ever drops a table.
+
+Step 1a (issue b8p.37.1.1): the runner is now built on yoyo-migrations 9.0.0.
+yoyo records applied migrations in its own ``_yoyo_migration`` table, so a
+successful ``migrate`` leaves that record behind. A DB made by the old runner
+(``user_version`` > 0 but no ``_yoyo_migration`` table) is not adopted in this
+step: the runner raises ``RuntimeError`` before touching anything, so 0001 is
+never re-run on it. Step 1b replaces that refusal with adoption.
 """
 
 import sqlite3
@@ -11,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from organize_music.db import migrations as migrations_mod
 from organize_music.db.migrations import SchemaTooNew, available, migrate
 
 # A token that appears in no other column, so an FTS match isolates the artist.
@@ -230,3 +238,154 @@ def test_fts_syncs_with_insert_and_update(tmp_path):
         assert [r["rowid"] for r in found_new] == [file_id]
     finally:
         conn.close()
+
+
+# --- yoyo-migrations internals (issue b8p.37, step 1a) --------------------
+#
+# The runner is now built on yoyo-migrations 9.0.0. yoyo records each applied
+# migration in its own ``_yoyo_migration`` table (a hash of the migration *id*,
+# not its contents). Content checksums and edited-migration detection arrive in
+# a later step, so these tests assert only the yoyo record and ``user_version``.
+
+
+def _copy_shipped_0001(dir: Path) -> None:
+    """Write the real 0001_initial.sql into a temp migrations dir."""
+    (dir / "0001_initial.sql").write_text(available()[0][1], encoding="utf-8")
+
+
+def _fake_0002(dir: Path) -> None:
+    """Add a trivial second migration to a temp migrations dir."""
+    (dir / "0002_fake.sql").write_text("CREATE TABLE marker_0002 (x INTEGER);\n", encoding="utf-8")
+
+
+def test_fresh_db_records_yoyo_migration_and_checksum(tmp_path):
+    path = tmp_path / "library.db"
+    conn = open_conn(path)
+    try:
+        migrate(conn, path, tmp_path / "backups", "2026-01-01T00:00:00Z")
+        # yoyo's own record of the applied migration.
+        yoyo_rows = conn.execute("SELECT migration_id FROM _yoyo_migration").fetchall()
+        assert [r["migration_id"] for r in yoyo_rows] == ["0001_initial"]
+        # The applied version is reflected in PRAGMA user_version.
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
+def test_migrate_twice_takes_no_backup(tmp_path):
+    path = tmp_path / "library.db"
+    backups = tmp_path / "backups"
+    conn = open_conn(path)
+    try:
+        assert migrate(conn, path, backups, "2026-01-01T00:00:00Z") == 1
+        first = list(backups.iterdir()) if backups.exists() else []
+        # Second migrate: nothing pending, so no new backup and still version 1.
+        assert migrate(conn, path, backups, "2026-01-02T00:00:00Z") == 1
+        second = list(backups.iterdir()) if backups.exists() else []
+        assert first == second  # no backups on either call
+        # No extra yoyo migration row was created.
+        assert conn.execute("SELECT COUNT(*) FROM _yoyo_migration").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
+def test_backup_exists_before_pending_migration_applies(tmp_path):
+    path = tmp_path / "library.db"
+    now = "2026-03-01T12:00:00Z"
+    backups = tmp_path / "backups"
+
+    conn = open_conn(path)
+    try:
+        assert migrate(conn, path, backups, now) == 1
+
+        fake_dir = tmp_path / "migrations"
+        fake_dir.mkdir()
+        _copy_shipped_0001(fake_dir)
+        _fake_0002(fake_dir)
+
+        assert migrate(conn, path, backups, now, migrations_dir=fake_dir) == 2
+
+        backup = backups / f"library-v1-{now}.db"
+        assert backup.exists()
+        assert "marker_0002" in {
+            r[0] for r in conn.execute("SELECT name FROM sqlite_master").fetchall()
+        }
+    finally:
+        conn.close()
+
+
+def test_failing_migration_rolls_back_and_is_not_recorded(tmp_path):
+    path = tmp_path / "library.db"
+    conn = open_conn(path)
+    try:
+        assert migrate(conn, path, tmp_path / "backups", "2026-01-01T00:00:00Z") == 1
+
+        fake_dir = tmp_path / "migrations"
+        fake_dir.mkdir()
+        _copy_shipped_0001(fake_dir)
+        # 0002 fails part-way: a duplicate table name.
+        (fake_dir / "0002_bad.sql").write_text(
+            "CREATE TABLE dup (x INTEGER);\nCREATE TABLE dup (y INTEGER);\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(sqlite3.OperationalError):
+            migrate(
+                conn,
+                path,
+                tmp_path / "backups",
+                "2026-01-01T00:00:00Z",
+                migrations_dir=fake_dir,
+            )
+
+        # The failed migration left nothing: not recorded in _yoyo_migration,
+        # and user_version is unchanged.
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        applied = {
+            r[0] for r in conn.execute("SELECT migration_id FROM _yoyo_migration").fetchall()
+        }
+        assert "0002_bad" not in applied
+        # The partial table was rolled back, so it does not exist either.
+        assert "dup" not in {
+            r[0] for r in conn.execute("SELECT name FROM sqlite_master").fetchall()
+        }
+    finally:
+        conn.close()
+
+
+def test_old_runner_db_refuses_0001(tmp_path):
+    """A DB made by the old runner is not adopted in step 1a.
+
+    ``user_version`` > 0 but no ``_yoyo_migration`` table: the runner raises
+    ``RuntimeError`` before touching anything, so 0001 is never re-run on it
+    and the file stays byte-identical (no backup, no schema change).
+    """
+    path = tmp_path / "library.db"
+    conn = open_conn(path)
+    conn.execute("PRAGMA user_version = 1")
+    conn.commit()
+    db_bytes = path.read_bytes()
+    backups = tmp_path / "backups"
+    with pytest.raises(RuntimeError):
+        migrate(conn, path, backups, "2026-01-01T00:00:00Z")
+    # The DB is untouched: still version 1, byte-identical, no backup taken.
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert path.read_bytes() == db_bytes
+    assert not backups.exists() or list(backups.iterdir()) == []
+    conn.close()
+
+
+def test_package_has_no_rollback_files_and_no_drop_statements():
+    import subprocess
+
+    migrations_dir = migrations_mod._MIGRATIONS_DIR
+    assert migrations_dir.is_dir()
+    for path in migrations_dir.glob("*.sql"):
+        assert not path.name.endswith(".rollback.sql")
+    assert not (migrations_dir / "0001_initial.rollback.sql").exists()
+    # No DROP anywhere in the shipped db module (forward-only).
+    result = subprocess.run(
+        ["grep", "-rn", "DROP", "src/organize_music/db/"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout == ""
