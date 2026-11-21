@@ -22,8 +22,7 @@ only. Interactive sessions keep the Conservative profile.
  hermes-run (one Hermes session = one issue)
         │
         ▼
- bd ready --exclude-type epic --exclude-label model:opus-5.5,model:fable-5.2
-          --sort priority → take the FIRST item
+ bd ready --exclude-type epic --sort priority → take the FIRST item
         │                                        (empty → NO_READY_WORK)
         ├─────────────── normal issue T ─────────────────┐
         │                                                ▼
@@ -96,10 +95,9 @@ only. Interactive sessions keep the Conservative profile.
   or print `RUN_BLOCKED`.
 - Do exactly ONE issue per session:
   1. Pick the issue with exactly this command, and take the FIRST item:
-     `bd ready --json --exclude-type epic --exclude-label model:opus-5.5,model:fable-5.2 --sort priority`
+     `bd ready --json --exclude-type epic --sort priority`
      (highest priority first; dependencies already filter out anything not
-     yet unblocked; issues labelled for Claude Opus or Fable are left to Claude
-     sessions, never claim one). Do not pick by title, label or your own judgement, and
+     yet unblocked). Do not pick by title, label or your own judgement, and
      never work an epic: epics are containers closed by their children. If the
      list is empty, run `bd dolt pull` once and repeat the command; if it is
      still empty, print `NO_READY_WORK` and stop. Do not investigate the
