@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from organize_music.dupes_report import DupesSummary, build_groups, render_duplicates_report
+from organize_music.fsops.protocol import write_text_atomic
 from organize_music.hash_pipeline import collect_hashes
 from organize_music.index_db import IndexDB
 from organize_music.metadata import interpret, is_audio
@@ -24,13 +25,6 @@ class UsageError(Exception):
 
 def _say(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
-
-
-def _write_atomic(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(path)
 
 
 def _ensure_outside(root: Path, path: Path, what: str) -> None:
@@ -54,7 +48,7 @@ def run_meta(
         ext_counts=Counter(r.ext for r in records),
         tracks=run.tracks,
     )
-    _write_atomic(report, render_metadata_report(summary))
+    write_text_atomic(report, render_metadata_report(summary))
     errors = sum(1 for t in run.tracks if t.error)
     _say(
         f"{len(run.tracks)} audio files (read {run.read}, cached {run.cached}, "
@@ -99,7 +93,7 @@ def run_dupes(root: Path, report: Path, index: Path) -> int:
         groups=build_groups(hashes, sizes),
         failures=run.failures,
     )
-    _write_atomic(report, render_duplicates_report(summary))
+    write_text_atomic(report, render_duplicates_report(summary))
     extra = sum(len(g.paths) - 1 for g in summary.groups)
     reclaim = sum(g.reclaimable for g in summary.groups) / BYTES_PER_GB
     _say(
