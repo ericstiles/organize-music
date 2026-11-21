@@ -1,5 +1,14 @@
 # Agent Instructions
 
+**Read `AGENTS_LOCAL.md` before starting any work.** It holds this repository's
+own rules and verified facts (environment, quality gate, dependencies,
+conventions); this file holds the general workflow. Where they conflict,
+`AGENTS_LOCAL.md` wins.
+
+This file is identical in every repository that uses the Hermes harness. The
+source of truth is `AGENTS.md` in `hermes-harness`; change it there and copy it
+to the other repositories. Put anything repository-specific in `AGENTS_LOCAL.md`.
+
 ## Autonomous Beads workflow
 
 Applies to unattended runs started by `hermes-run` (inside the Hermes Docker
@@ -67,7 +76,7 @@ only. Interactive sessions keep the Conservative profile.
   - otherwise: `bd dolt pull`
   Then check `bd stats`. If the remote directory is missing, bootstrap fails,
   or the database has 0 issues, print the reason and `RUN_BLOCKED`, and stop.
-  Never fall back to `docs/WEB_UI_ISSUES.md` or any markdown list as the
+  Never fall back to a markdown issue list (e.g. under `docs/`) as the
   queue, and never edit `sync.remote`.
 - Print the stop markers `NO_READY_WORK` and `RUN_BLOCKED` alone on their own
   line, exactly as written; the harness classifies the run from them.
@@ -79,6 +88,12 @@ only. Interactive sessions keep the Conservative profile.
   `NO_READY_WORK`. If you are unsure, decide yourself and note the decision in
   the PR body; if you truly cannot continue, that is step 5 (blocked).
 - Then `bd prime`. Use `bd` for all tracking; no markdown TODOs.
+- **Never replace notes** (`bd update --notes` is blocked: it erases the PR
+  link). Only `bd update <id> --append-notes "<line>"`. To tick a checklist
+  item, append `- [x] <item>: <evidence>`; never rewrite old lines. Pass
+  no `@file` to a bd flag unless `bd <cmd> --help` says it reads files.
+  After every bd write, verify with `bd show <id>`; if it did not land, fix it
+  or print `RUN_BLOCKED`.
 - Do exactly ONE issue per session:
   1. Pick the issue with exactly this command, and take the FIRST item:
      `bd ready --json --exclude-type epic --exclude-label model:opus-5.5,model:fable-5.2 --sort priority`
@@ -86,7 +101,9 @@ only. Interactive sessions keep the Conservative profile.
      yet unblocked; issues labelled for Claude Opus or Fable are left to Claude
      sessions, never claim one). Do not pick by title, label or your own judgement, and
      never work an epic: epics are containers closed by their children. If the
-     list is empty, print `NO_READY_WORK` and stop.
+     list is empty, run `bd dolt pull` once and repeat the command; if it is
+     still empty, print `NO_READY_WORK` and stop. Do not investigate the
+     unfiltered list.
   2. `bd update <id> --claim --json`, then `bd dolt push` (so the host sees the
      claim at once), then `bd show <id>`. If the issue has the label
      `review-fix`, follow "Review-fix issues" below instead of steps 3-4.
@@ -94,7 +111,7 @@ only. Interactive sessions keep the Conservative profile.
      ran out of time or crashed and saved its work), read it first and, when
      `origin/bd/<id>` exists, continue on it: `git checkout -B bd/<id> origin/bd/<id>`.
      Otherwise branch `bd/<id>` from `origin/main`. Implement test-first, then
-     run the quality gate: `ruff check . && ruff format --check . && pytest`.
+     run the quality gate given in `AGENTS_LOCAL.md`.
      At each milestone (tests written, tests pass) run
      `bd update <id> --append-notes "PROGRESS: <milestone>"`: the harness's time
      limit is extended while files are written, commits made or such notes added.
@@ -102,12 +119,13 @@ only. Interactive sessions keep the Conservative profile.
   4. If tests pass: commit, push the branch, open a PR with `gh pr create`
      (base `main`) titled `<type>(<id>): <summary>` (e.g. `fix(<id>): ...`)
      with these lines in the body: `Bead: <id>` and
-     `Hermes-Session: <your session id>` (from your system prompt). Then
-     `bd update <id> --append-notes "PR: <url>"`. Do NOT close the issue:
+     `Hermes-Session: <your session id>` (from your system prompt; if it is
+     not there, write `Hermes-Session: unknown` and do not search for it).
+     Then `bd update <id> --append-notes "PR: <url>"` and verify with
+     `bd show <id>` that the `PR:` line is there. Do NOT close the issue:
      it stays `in_progress` so its dependents stay blocked until the PR is
-     merged. The reviewer (`hermes-review`) closes it on merge (see
-     `docs/AGENTS_WORKFLOW.md`). Print the full PR URL on its own line in your
-     final message.
+     merged; the reviewer (`hermes-review`) closes it on merge. Print the full
+     PR URL on its own line in your final message.
   5. If you hit a blocker: commit WIP to the branch, push it, run
      `bd update <id> --status blocked --append-notes "<why>"`, and print
      `RUN_BLOCKED`. Stop. Don't guess at requirements.
@@ -120,14 +138,25 @@ only. Interactive sessions keep the Conservative profile.
   1. `git fetch origin`, then check out the EXISTING branch:
      `git checkout -B bd/<T> origin/bd/<T>`. Never branch from main.
   2. Read the review: `gh pr view <N> --comments` and the issue's checklist.
-  3. Fix every point. Tests first for each bug, as in the issue sections below.
+  3. If a point can only be fixed by fixing what another open bead B describes
+     (`bd list` / `bd search`; e.g. a coverage gap caused by B's bug), fix B
+     here too, and mark it so no later run redoes it: `bd update B --claim`,
+     then `bd update B --append-notes "Fixed in PR <url> via review-fix <F>"`
+     (that exact line; the reviewer closes B when it merges the PR, so do NOT
+     close B). Name B in the commit message and in a PR comment
+     (`gh pr comment <N> --body "Also fixes B: <why>"`). If B is already
+     claimed by someone else, do not touch it: `bd update <F> --status blocked
+     --append-notes "needs B, claimed by <assignee>"`, print `RUN_BLOCKED`
+     naming B, and stop.
+  4. Fix every point. Tests first for each bug, as in the issue sections below.
      Run the quality gate.
-  4. Commit and `git push origin bd/<T>`. Do NOT open a new PR, do NOT
+  5. Commit and `git push origin bd/<T>`. Do NOT open a new PR, do NOT
      force-push, do NOT touch the PR title or the `Bead: <T>` line.
-  5. `bd update <F> --append-notes "PR: <url>"`. Do NOT close F or T: the
-     reviewer closes both when it merges the PR. Print the PR URL on its own
-     line.
-  6. A point you cannot fix in this PR's scope: file it as a new issue (rules
+  6. `bd update <F> --append-notes "PR: <url>"`, then verify with `bd show <F>`
+     and `bd show <T>` that both still have their `PR:` line. Do NOT close F or
+     T: the reviewer closes both when it merges the PR. Print the PR URL on its
+     own line.
+  7. A point you cannot fix in this PR's scope: file it as a new issue (rules
      below) and say so in a PR comment (`gh pr comment <N>`).
   - **Rebase fixes** (labels `review-fix` and `rebase-conflict`, title
     `Rebase PR #N onto main (T)`): the PR only conflicts with main. After step 1,
@@ -135,7 +164,7 @@ only. Interactive sessions keep the Conservative profile.
     both sides, then run the quality gate. Push with
     `git push --force-with-lease origin bd/<T>`: the ONLY case where a
     force-push is allowed, and only to that branch. Change nothing else. Then
-    step 5.
+    step 6.
 - You ARE allowed and expected to create new beads issues. Do not ask first.
   File one with `bd create "<title>" -t bug|task -p <0-4> --deps discovered-from:<id> -d "<self-contained description>" --acceptance "<checks a test can assert>" --silent`
   whenever you:
@@ -165,8 +194,8 @@ only. Interactive sessions keep the Conservative profile.
      say which one and file it per the spec-conflict rule above.
   6. **Acceptance** (`--acceptance`): checks a test can assert (exact status
      codes, exact output, exact exit codes), one test per check.
-  7. **Constraints**: Python >= 3.12, stdlib plus existing dependencies only,
-     files not to touch, the quality gate above, existing tests must keep
+  7. **Constraints**: the stack and dependency limits and the quality gate
+     from `AGENTS_LOCAL.md`, files not to touch, existing tests must keep
      passing, and conventional commit messages.
   8. **Dependencies**: `--deps blocked-by:<id>` for anything that must land
      first; only `discovered-from:<id>` for issues you found while working.
@@ -175,8 +204,25 @@ only. Interactive sessions keep the Conservative profile.
 - Never push to main, never merge, never force-push (sole exception: a rebase
   fix, `--force-with-lease` to its `bd/<T>` branch), never edit CI/secrets
   config, never commit `.envrc.local` or real host names, IPs or paths (use
-  the `$PI_HOST` / `$MUSIC_LIB` environment variables).
+  the environment variables `AGENTS_LOCAL.md` names).
 - Sync beads before finishing (`bd dolt push`).
+
+### Working habits
+
+- Put probes and scratch files outside the repository (in `/tmp`), so the
+  commit never needs cleanup.
+- When you add a dependency, add it to every file the project installs from
+  (manifest, lock file, dev requirements), install it in the local environment,
+  and write `New dependency: <name>==<version>` in the PR body. The reviewer's
+  quality gate only has what those files list.
+- An issue's facts can be wrong. When the code, a library or a test contradicts
+  the issue's prose, follow what you verified and name the difference in the
+  PR body; do not stop on it.
+- If a guard refuses a command, do not retry it or split it to slip past;
+  use the form the guard allows. The Hermes sandbox refuses `python3 -c`,
+  heredocs, `execute_code`, `rm -rf` on `/tmp` paths and several deletions in
+  quick succession: write the script to `/tmp/<name>.py` and run it with the
+  project's interpreter, and delete one file per command. There is no `jq`.
 
 ### Commits inside the sandbox
 
