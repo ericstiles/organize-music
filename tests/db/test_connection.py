@@ -6,6 +6,8 @@ concurrently. A second WriterLock on the same path must fail with WriterBusy,
 and the lock must be released when the with-block exits.
 """
 
+import fcntl
+import os
 import sqlite3
 
 import pytest
@@ -87,3 +89,32 @@ def test_lock_released_after_block(tmp_path):
 def test_writer_lock_is_a_context_manager(tmp_path):
     lock = WriterLock(tmp_path / "writer.lock")
     assert lock.__enter__() is lock
+
+
+def test_enter_closes_fd_on_unexpected_error(tmp_path, monkeypatch):
+    # If fcntl.flock raises an error other than BlockingIOError, the fd opened
+    # by os.open must still be closed (no descriptor leak).
+    lock_path = tmp_path / "writer.lock"
+    opened_fds: list[int] = []
+
+    real_open = os.open
+
+    def recording_open(*args, **kwargs):
+        fd = real_open(*args, **kwargs)
+        opened_fds.append(fd)
+        return fd
+
+    def raise_oserror(*args, **kwargs):
+        raise OSError("simulated flock failure")
+
+    monkeypatch.setattr(os, "open", recording_open)
+    monkeypatch.setattr(fcntl, "flock", raise_oserror)
+
+    lock = WriterLock(lock_path)
+    with pytest.raises(OSError):
+        lock.__enter__()
+
+    # The fd os.open handed us must be closed; fstat on it now raises.
+    leaked_fd = opened_fds[-1]
+    with pytest.raises(OSError):
+        os.fstat(leaked_fd)

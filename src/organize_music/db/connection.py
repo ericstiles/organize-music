@@ -53,6 +53,11 @@ class WriterLock:
         except BlockingIOError:
             os.close(fd)
             raise WriterBusy("server is running") from None
+        except BaseException:
+            # Any other flock failure (EBADF, EINTR/InterruptedError,
+            # KeyboardInterrupt, ...) must not leak the fd os.open returned.
+            os.close(fd)
+            raise
         self._fd = fd
         return self
 
