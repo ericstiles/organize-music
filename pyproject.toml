@@ -17,6 +17,7 @@ dependencies = [
     "python-multipart>=0.0.34",
     "itsdangerous>=2.2,<3",
     "mediafile>=0.17,<0.18",
+    "yoyo-migrations==9.0.0",
 ]
 
 [project.scripts]
