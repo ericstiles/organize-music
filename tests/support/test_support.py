@@ -13,8 +13,21 @@ import os
 import sqlite3
 from pathlib import Path
 
+import support.faulty_fs
 from support.faulty_fs import FaultyFs, SimulatedCrash, count_calls
 from support.invariants import assert_consistent, content_hashes
+
+
+def test_module_docstring_documents_the_crash_points_fixture() -> None:
+    # P1-12 requires a ``crash_points`` pytest fixture usage example in the
+    # module docstring of faulty_fs.py.  A regression guard so the example is
+    # not accidentally dropped on a future edit.
+    doc = (support.faulty_fs.__doc__ or "").lower()
+    assert "crash_points" in doc
+    assert "fixture" in doc
+    # The example must read like a real pytest fixture: it decorates a
+    # function and yields the parameterised crash points.
+    assert "crash_points" in support.faulty_fs.__doc__
 
 
 class Recorder:
