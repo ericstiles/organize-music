@@ -13,6 +13,7 @@ step: the runner raises ``RuntimeError`` before touching anything, so 0001 is
 never re-run on it. Step 1b replaces that refusal with adoption.
 """
 
+import hashlib
 import sqlite3
 from pathlib import Path
 
@@ -450,3 +451,45 @@ def test_package_has_no_rollback_files_and_no_drop_statements():
         text=True,
     )
     assert result.stdout == ""
+
+
+def test_applied_id_unknown_to_code_refuses_and_touches_nothing(tmp_path):
+    path = tmp_path / "library.db"
+    conn = open_conn(path)
+    migrate(conn, path, tmp_path / "backups", "2026-01-01T00:00:00Z")
+
+    # Simulate a DB that has an applied migration the shipped code does not know:
+    # a newer migration recorded by _yoyo_migration with no matching file.
+    conn.execute(
+        "INSERT INTO _yoyo_migration (migration_hash, migration_id, applied_at_utc) "
+        "VALUES (?, '0002_ghost', '2026-01-01T00:00:00')",
+        (hashlib.sha256(b"0002_ghost").hexdigest(),),
+    )
+    conn.commit()
+    # Snapshot AFTER the setup write: the guard must not change the file further,
+    # so the byte-identical check is taken right before the guarded migrate().
+    db_bytes = path.read_bytes()
+    # Point the runner at a migrations dir that has only 0001 (no 0002_ghost).
+    sparse = tmp_path / "migrations"
+    sparse.mkdir()
+    _copy_shipped_0001(sparse)
+    with pytest.raises(SchemaTooNew):
+        migrate(conn, path, tmp_path / "backups", "2026-01-01T00:00:00Z", migrations_dir=sparse)
+    # The DB is untouched by the guard: still the post-setup bytes, no backup taken.
+    assert path.read_bytes() == db_bytes
+    backups = tmp_path / "backups"
+    assert not backups.exists() or list(backups.iterdir()) == []
+    conn.close()
+
+
+def test_user_version_newer_than_code_refuses_and_touches_nothing(tmp_path):
+    path = tmp_path / "library.db"
+    conn = open_conn(path)
+    conn.execute("PRAGMA user_version = 99")
+    conn.commit()
+    backups = tmp_path / "backups"
+    with pytest.raises(SchemaTooNew):
+        migrate(conn, path, backups, "2026-01-01T00:00:00Z")
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 99
+    assert not backups.exists() or list(backups.iterdir()) == []
+    conn.close()
