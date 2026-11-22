@@ -63,6 +63,23 @@ def _yoyo_manages(conn: sqlite3.Connection) -> bool:
     return row is not None
 
 
+def _applied_ids(conn: sqlite3.Connection) -> set[str]:
+    """Migration ids yoyo has already recorded in the DB (a plain read)."""
+    return {row[0] for row in conn.execute(f"SELECT migration_id FROM {_YOYO_TABLE}").fetchall()}
+
+
+def _unknown_applied(conn: sqlite3.Connection, directory: Path) -> set[str]:
+    """Applied yoyo ids that have no matching migration file (a too-new schema).
+
+    Read from yoyo's own table with a plain SELECT so the check takes no lock
+    and writes nothing: the DB must stay byte-identical when we refuse.
+    """
+    if not _yoyo_manages(conn):
+        return set()
+    known = {path.stem for path in directory.glob("*.sql") if _FILE.match(path.name)}
+    return _applied_ids(conn) - known
+
+
 def _backup(conn: sqlite3.Connection, backups_dir: Path, old_version: int, now: str) -> None:
     """Copy the live database to ``backups_dir/library-v<old>-<now>.db`` before migrating."""
     backups_dir.mkdir(parents=True, exist_ok=True)
@@ -102,6 +119,16 @@ def migrate(
             f"database user_version {user_version} is newer than the "
             f"code's schema version {max_available}"
         )
+    directory = _MIGRATIONS_DIR if migrations_dir is None else migrations_dir
+    # A DB that yoyo already applied a migration the code does not ship is too
+    # new as well. Refuse before any backup or write, reading yoyo's table with
+    # a plain SELECT so the DB stays byte-identical.
+    unknown = _unknown_applied(conn, directory)
+    if unknown:
+        raise SchemaTooNew(
+            "database has applied migration(s) the code does not know: "
+            + ", ".join(sorted(unknown))
+        )
     # A DB the old runner made (a version but no yoyo table) is adopted: its
     # already-applied migrations are marked in yoyo WITHOUT being run, so 0001
     # is never re-executed on top of the existing schema.
@@ -109,7 +136,6 @@ def migrate(
         _backup(conn, backups_dir, user_version, now)
     if not pending and not (user_version > 0 and not _yoyo_manages(conn)):
         return user_version
-    directory = _MIGRATIONS_DIR if migrations_dir is None else migrations_dir
     yoyo_migrations = yoyo.read_migrations(str(directory))
     to_apply = [m for m in yoyo_migrations if _version_of(m) > user_version]
     to_adopt = [m for m in yoyo_migrations if _version_of(m) <= user_version]
