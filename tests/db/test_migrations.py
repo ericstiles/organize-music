@@ -14,6 +14,7 @@ never re-run on it. Step 1b replaces that refusal with adoption.
 """
 
 import hashlib
+import logging
 import sqlite3
 from pathlib import Path
 from unittest import mock
@@ -21,7 +22,12 @@ from unittest import mock
 import pytest
 
 from organize_music.db import migrations as migrations_mod
-from organize_music.db.migrations import SchemaTooNew, available, migrate
+from organize_music.db.migrations import (
+    MigrationChanged,
+    SchemaTooNew,
+    available,
+    migrate,
+)
 
 # A token that appears in no other column, so an FTS match isolates the artist.
 ARTIST = "Marblehead"
@@ -628,3 +634,61 @@ def test_yoyo_backend_connection_is_closed(tmp_path):
         with pytest.raises(sqlite3.ProgrammingError):
             real_conn.execute("SELECT 1")
     conn.close()
+
+
+# --- issue b8p.37.4: MigrationChanged guard and checksum backfill ---------
+#
+# yoyo records only a migration's *id*, so an edited migration file is invisible
+# to yoyo. The runner keeps its own sha256 per applied migration. On open it
+# compares each applied id's stored checksum against the shipped file: a mismatch
+# raises MigrationChanged and touches nothing; an applied id with no checksum row
+# (a crash between yoyo's record and ours, or a DB from an earlier step) is
+# backfilled with the current file's hash and a warning is logged.
+
+
+def test_edited_applied_migration_raises_migration_changed(tmp_path):
+    path = tmp_path / "library.db"
+    conn = open_conn(path)
+    # Apply the real 0001, which records its content checksum.
+    migrate(conn, path, tmp_path / "backups", "2026-01-01T00:00:00Z")
+
+    # Now "edit" 0001 after it was applied: a migrations dir whose 0001 differs.
+    edited_dir = tmp_path / "migrations"
+    edited_dir.mkdir()
+    edited_dir.joinpath("0001_initial.sql").write_text(
+        "CREATE TABLE hacked (x INTEGER);\n", encoding="utf-8"
+    )
+    with pytest.raises(MigrationChanged) as exc:
+        migrate(conn, path, tmp_path / "backups", "2026-01-01T00:00:00Z", migrations_dir=edited_dir)
+    assert str(exc.value) == "0001_initial"
+    # Nothing was applied: user_version is still 1, the DB gained no new schema.
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert "hacked" not in {r[0] for r in conn.execute("SELECT name FROM sqlite_master").fetchall()}
+    conn.close()
+
+
+def test_missing_checksum_row_is_backfilled_with_warning(tmp_path, caplog):
+    path = tmp_path / "library.db"
+    conn = open_conn(path)
+    try:
+        migrate(conn, path, tmp_path / "backups", "2026-01-01T00:00:00Z")
+        # Simulate a crash between yoyo recording the migration and the runner
+        # writing its checksum row: delete the checksum but keep the yoyo record.
+        conn.execute("DELETE FROM migration_checksums")
+        conn.commit()
+        assert conn.execute("SELECT COUNT(*) FROM migration_checksums").fetchone()[0] == 0
+
+        with caplog.at_level(logging.WARNING, logger="organize_music.db.migrations"):
+            again = migrate(conn, path, tmp_path / "backups", "2026-01-01T00:00:00Z")
+        assert again == 1
+        # The row was backfilled with the current file's hash.
+        row = conn.execute(
+            "SELECT sha256 FROM migration_checksums WHERE migration_id = '0001_initial'"
+        ).fetchone()
+        assert row is not None
+        shipped = available()[0][1].encode("utf-8")
+        assert row["sha256"] == hashlib.sha256(shipped).hexdigest()
+        # A warning was logged about the backfill.
+        assert any("checksum" in rec.message.lower() for rec in caplog.records)
+    finally:
+        conn.close()
