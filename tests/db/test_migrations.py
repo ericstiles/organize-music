@@ -16,6 +16,7 @@ never re-run on it. Step 1b replaces that refusal with adoption.
 import hashlib
 import sqlite3
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -492,4 +493,126 @@ def test_user_version_newer_than_code_refuses_and_touches_nothing(tmp_path):
         migrate(conn, path, backups, "2026-01-01T00:00:00Z")
     assert conn.execute("PRAGMA user_version").fetchone()[0] == 99
     assert not backups.exists() or list(backups.iterdir()) == []
+    conn.close()
+
+
+# --- issue b8p.37.5: pick pending migrations from yoyo state, not user_version ---
+#
+# yoyo records each migration on its own connection (backend.apply_one), while
+# user_version is bumped on the caller's conn afterwards. A crash between those
+# two writes leaves _yoyo_migration holding the id while user_version is still
+# the old number. A runner that recomputes pending from user_version then
+# re-applies the already-applied migration and fails (duplicate CREATE TABLE).
+# The fix picks pending migrations from yoyo's own state (backend.to_apply) and
+# repairs user_version to the highest applied number.
+
+
+def _crash_between_yoyo_and_user_version(path: Path, mdir: Path) -> None:
+    """Reproduce a crash after 0002 recorded in yoyo but before user_version was bumped.
+
+    0001 is applied through the real runner; then 0002_fake is recorded in
+    ``_yoyo_migration`` and its SQL is run on the caller's connection, but
+    ``user_version`` is left at 1 -- exactly the post-crash state.
+    """
+    conn = open_conn(path)
+    try:
+        # Apply the real 0001 through the runner (creates the schema + yoyo table).
+        migrate(conn, path, path.parent / "backups", "2026-01-01T00:00:00Z")
+        # Hand-record 0002_fake as applied, exactly as a backend.apply_one would,
+        # and run its SQL -- but do NOT bump user_version (the crash point).
+        conn.execute(
+            "INSERT INTO _yoyo_migration (migration_hash, migration_id, applied_at_utc) "
+            "VALUES (?, ?, ?)",
+            (
+                hashlib.sha256(b"0002_fake").hexdigest(),
+                "0002_fake",
+                "2026-01-01T00:00:00Z",
+            ),
+        )
+        conn.execute("CREATE TABLE marker_0002 (x INTEGER);")
+        conn.commit()
+        # user_version is still 1: the 0002 bump was the write that crashed.
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
+def test_lagging_user_version_is_repaired_not_reapplied(tmp_path):
+    """A crash between the yoyo write and the user_version bump is repaired.
+
+    The DB has 0002_fake recorded in _yoyo_migration and its table present, but
+    user_version is still 1. Re-running migrate() must NOT re-apply 0002_fake
+    (which would fail with "table already exists"); it must recognize 0002 as
+    applied from yoyo's state and repair user_version up to 2.
+    """
+    path = tmp_path / "library.db"
+
+    fake_dir = tmp_path / "migrations"
+    fake_dir.mkdir()
+    _copy_shipped_0001(fake_dir)
+    _fake_0002(fake_dir)
+
+    _crash_between_yoyo_and_user_version(path, fake_dir)
+
+    conn = open_conn(path)
+    try:
+        # Returns 2 (highest applied version), no exception, and repairs
+        # user_version to 2 without re-running 0002_fake's SQL.
+        result = migrate(
+            conn, path, tmp_path / "backups", "2026-01-02T00:00:00Z", migrations_dir=fake_dir
+        )
+        assert result == 2
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        # 0002_fake was not re-applied: it was already recorded, so still one
+        # row for it and its table exists exactly once.
+        ids = [r[0] for r in conn.execute("SELECT migration_id FROM _yoyo_migration").fetchall()]
+        assert ids == ["0001_initial", "0002_fake"]
+        assert "marker_0002" in {
+            r[0] for r in conn.execute("SELECT name FROM sqlite_master").fetchall()
+        }
+    finally:
+        conn.close()
+
+
+def test_yoyo_backend_connection_is_closed(tmp_path):
+    """The yoyo backend's own connection is closed when migrate() returns.
+
+    yoyo opens its own connection to the same file (via get_backend). If it is
+    left open the DB file can stay locked / leaked; migrate() must close it on
+    every return path. We hand migrate() a real yoyo backend whose connection is
+    wrapped in a spy, and assert that migrate() closed it for real.
+    """
+    path = tmp_path / "library.db"
+    conn = open_conn(path)
+    # Capture the real get_backend BEFORE patching, so we can build a real
+    # backend (and a real connection) inside the patch context.
+    real_get_backend = migrations_mod.yoyo.get_backend
+    with mock.patch.object(migrations_mod.yoyo, "get_backend") as get_backend:
+        real_backend = real_get_backend(f"sqlite:///{path}")
+        real_conn = real_backend.connection
+        # Wrap the connection so we can observe close() without breaking yoyo.
+        closed = {"n": 0}
+
+        class _Spy:
+            def __init__(self, real):
+                self._real = real
+
+            def close(self) -> None:
+                self._real.close()
+                closed["n"] += 1
+
+            def __getattr__(self, name: str) -> object:
+                return getattr(self._real, name)
+
+        fake_backend = mock.Mock(wraps=real_backend)
+        fake_backend.connection = _Spy(real_conn)
+        get_backend.return_value = fake_backend
+
+        result = migrate(conn, path, tmp_path / "backups", "2026-01-01T00:00:00Z")
+        assert result == 1
+        # The backend's connection was closed by migrate() ...
+        assert closed["n"] >= 1
+        # ... and it is really closed: executing on it now fails.
+        with pytest.raises(sqlite3.ProgrammingError):
+            real_conn.execute("SELECT 1")
     conn.close()

@@ -92,6 +92,20 @@ def _backup(conn: sqlite3.Connection, backups_dir: Path, old_version: int, now: 
         target.close()
 
 
+def _highest_applied(conn: sqlite3.Connection) -> int:
+    """The highest migration version yoyo has recorded (a plain read).
+
+    yoyo's ``_yoyo_migration`` table is the source of truth for what is
+    applied. Reading the highest version from it -- rather than trusting
+    ``user_version`` -- lets a value left lagging by a crash between the two
+    writes be repaired to match the record.
+    """
+    rows = conn.execute(f"SELECT migration_id FROM {_YOYO_TABLE}").fetchall()
+    if not rows:
+        return 0
+    return max(int(migration_id.split("_", 1)[0]) for migration_id in (r[0] for r in rows))
+
+
 def migrate(
     conn: sqlite3.Connection,
     db_path: Path,
@@ -104,11 +118,13 @@ def migrate(
     A database whose ``user_version`` exceeds the newest available file raises
     ``SchemaTooNew`` and is left untouched. When migrations are pending on a DB
     that already has a schema (``user_version > 0``), an online backup is taken
-    first. Each pending file is then applied through yoyo in its own transaction
-    and the ``user_version`` is bumped to that file's version. A DB made by the
-    old runner (a ``user_version`` but no yoyo table) is adopted: its applied
-    migrations are marked in yoyo without being run. yoyo's connection is closed
-    when the call returns.
+    first. Each pending file is then applied through yoyo in its own transaction,
+    and afterwards ``user_version`` is set to the highest version yoyo has
+    recorded -- which also repairs a value left lagging by a crash between the
+    yoyo write and the previous bump. A DB made by the old runner (a
+    ``user_version`` but no yoyo table) is adopted: its applied migrations are
+    marked in yoyo without being run. yoyo's connection is closed when the call
+    returns.
     """
     user_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
     migrations = available(migrations_dir)
@@ -137,7 +153,6 @@ def migrate(
     if not pending and not (user_version > 0 and not _yoyo_manages(conn)):
         return user_version
     yoyo_migrations = yoyo.read_migrations(str(directory))
-    to_apply = [m for m in yoyo_migrations if _version_of(m) > user_version]
     to_adopt = [m for m in yoyo_migrations if _version_of(m) <= user_version]
     backend = yoyo.get_backend(f"sqlite:///{db_path}")
     try:
@@ -146,12 +161,18 @@ def migrate(
             # yoyo without executing them, so their SQL runs on this DB once.
             if user_version > 0 and not _yoyo_manages(conn):
                 backend.mark_migrations(to_adopt)
-            # Apply the remaining pending migrations, each in its own
-            # transaction, and bump user_version as they land.
-            for migration in to_apply:
+            # Pending migrations come from yoyo's own state, not user_version: a
+            # crash can leave user_version behind a migration yoyo already
+            # recorded, and recomputing from it would re-apply that migration
+            # and fail. to_apply() skips whatever yoyo has already recorded.
+            for migration in backend.to_apply(yoyo_migrations):
                 backend.apply_one(migration)
-                conn.execute(f"PRAGMA user_version = {_version_of(migration)}")
-                conn.commit()
+            # user_version is set to the highest version yoyo has recorded, not
+            # to each migration's version as it lands: this both advances it and
+            # repairs a value left lagging by a crash between the two writes.
+            highest = _highest_applied(conn)
+            conn.execute(f"PRAGMA user_version = {highest}")
+            conn.commit()
     finally:
         backend.connection.close()
     return int(conn.execute("PRAGMA user_version").fetchone()[0])
