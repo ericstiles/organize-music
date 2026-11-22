@@ -270,6 +270,13 @@ def test_fresh_db_records_yoyo_migration_and_checksum(tmp_path):
         assert [r["migration_id"] for r in yoyo_rows] == ["0001_initial"]
         # The applied version is reflected in PRAGMA user_version.
         assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        # The runner's content checksum table.
+        checks = conn.execute("SELECT migration_id, sha256 FROM migration_checksums").fetchall()
+        by_id = {r["migration_id"]: r["sha256"] for r in checks}
+        assert "0001_initial" in by_id
+        # The stored checksum is the sha256 of the shipped file's bytes.
+        shipped = available()[0][1].encode("utf-8")
+        assert by_id["0001_initial"] == hashlib.sha256(shipped).hexdigest()
     finally:
         conn.close()
 
@@ -340,12 +347,17 @@ def test_failing_migration_rolls_back_and_is_not_recorded(tmp_path):
             )
 
         # The failed migration left nothing: not recorded in _yoyo_migration,
-        # and user_version is unchanged.
+        # no checksum row, and user_version is unchanged.
         assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
         applied = {
             r[0] for r in conn.execute("SELECT migration_id FROM _yoyo_migration").fetchall()
         }
         assert "0002_bad" not in applied
+        checksum_ids = {
+            r["migration_id"]
+            for r in conn.execute("SELECT migration_id FROM migration_checksums").fetchall()
+        }
+        assert "0002_bad" not in checksum_ids
         # The partial table was rolled back, so it does not exist either.
         assert "dup" not in {
             r[0] for r in conn.execute("SELECT name FROM sqlite_master").fetchall()
