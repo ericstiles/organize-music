@@ -185,6 +185,10 @@ def migrate(
             for migration in backend.to_apply(yoyo_migrations):
                 backend.apply_one(migration)
                 record_checksum(conn, migration.id, migration.path, now)
+                # Commit the checksum before the next apply_one runs on yoyo's own
+                # connection: an open write transaction would block it. A crash
+                # here leaves the row for the next run to backfill.
+                conn.commit()
             # user_version is set to the highest version yoyo has recorded, not
             # to each migration's version as it lands: this both advances it and
             # repairs a value left lagging by a crash between the two writes.

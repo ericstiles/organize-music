@@ -692,3 +692,94 @@ def test_missing_checksum_row_is_backfilled_with_warning(tmp_path, caplog):
         assert any("checksum" in rec.message.lower() for rec in caplog.records)
     finally:
         conn.close()
+
+
+# --- issue l2o: apply any number of pending migrations in one migrate() call --
+#
+# Before the fix, migrate() committed the caller's connection only after the
+# whole apply loop. record_checksum() INSERTed on the caller's conn without
+# committing, so the next iteration's backend.apply_one (which runs on yoyo's
+# own connection to the same file) could not get the write lock the caller held
+# and blocked until sqlite's busy timeout: "database is locked". Every prior
+# test applies exactly one migration per call, so none caught it.
+
+
+def _fake_0003(dir: Path) -> None:
+    """Add a trivial third migration to a temp migrations dir."""
+    (dir / "0003_fake.sql").write_text("CREATE TABLE marker_0003 (x INTEGER);\n", encoding="utf-8")
+
+
+def test_two_pending_migrations_apply_in_one_call(tmp_path):
+    """A fresh DB with 0001 and 0002 both pending applies both in one migrate().
+
+    The regression: two pending migrations in a single call left the caller's
+    connection holding an open write transaction across the second
+    apply_one, so the second migration deadlocked on the busy timeout. The call
+    must instead apply both and land on user_version 2 with a checksum row for
+    each migration.
+    """
+    path = tmp_path / "library.db"
+    conn = open_conn(path)
+    try:
+        fake_dir = tmp_path / "migrations"
+        fake_dir.mkdir()
+        _copy_shipped_0001(fake_dir)
+        _fake_0002(fake_dir)
+
+        version = migrate(
+            conn, path, tmp_path / "backups", "2026-01-01T00:00:00Z", migrations_dir=fake_dir
+        )
+        assert version == 2
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        # Both migrations are recorded in yoyo's own table ...
+        ids = [r[0] for r in conn.execute("SELECT migration_id FROM _yoyo_migration").fetchall()]
+        assert ids == ["0001_initial", "0002_fake"]
+        # ... and both have a content checksum row.
+        checksum_ids = {
+            r[0] for r in conn.execute("SELECT migration_id FROM migration_checksums").fetchall()
+        }
+        assert checksum_ids == {"0001_initial", "0002_fake"}
+        # Both migrations' schema landed.
+        names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master").fetchall()}
+        assert "marker_0002" in names
+        assert "files" in names
+    finally:
+        conn.close()
+
+
+def test_db_two_versions_behind_catches_up_in_one_call(tmp_path):
+    """A DB at version 1 with 0002 and 0003 pending catches up to 3 in one call."""
+    path = tmp_path / "library.db"
+    now = "2026-03-01T12:00:00Z"
+    backups = tmp_path / "backups"
+
+    fake_dir = tmp_path / "migrations"
+    fake_dir.mkdir()
+    _copy_shipped_0001(fake_dir)
+    _fake_0002(fake_dir)
+    _fake_0003(fake_dir)
+
+    conn = open_conn(path)
+    try:
+        # Land the DB at version 1 with a single-migration dir (no deadlock).
+        single = tmp_path / "only_0001"
+        single.mkdir()
+        _copy_shipped_0001(single)
+        assert migrate(conn, path, backups, now, migrations_dir=single) == 1
+
+        # Now two migrations are pending at once: the caller must apply both
+        # and reach user_version 3 without deadlocking on the busy timeout.
+        version = migrate(conn, path, backups, now, migrations_dir=fake_dir)
+        assert version == 3
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+        ids = [r[0] for r in conn.execute("SELECT migration_id FROM _yoyo_migration").fetchall()]
+        assert ids == ["0001_initial", "0002_fake", "0003_fake"]
+        checksum_ids = {
+            r[0] for r in conn.execute("SELECT migration_id FROM migration_checksums").fetchall()
+        }
+        assert checksum_ids == {"0001_initial", "0002_fake", "0003_fake"}
+        names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master").fetchall()}
+        assert "marker_0002" in names
+        assert "marker_0003" in names
+    finally:
+        conn.close()
