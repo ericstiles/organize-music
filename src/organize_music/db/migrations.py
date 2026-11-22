@@ -23,9 +23,14 @@ from pathlib import Path
 import yoyo
 from yoyo.migrations import Migration
 
-from organize_music.db.migration_checksums import ensure_checksum_table, record_checksum
+from organize_music.db.migration_checksums import (
+    MigrationChanged,
+    ensure_checksum_table,
+    record_checksum,
+    verify_checksums,
+)
 
-__all__ = ["SchemaTooNew", "available", "migrate"]
+__all__ = ["MigrationChanged", "SchemaTooNew", "available", "migrate"]
 
 # The migrations directory shipped with the package.
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
@@ -147,6 +152,12 @@ def migrate(
             "database has applied migration(s) the code does not know: "
             + ", ".join(sorted(unknown))
         )
+    # Verify every applied migration's content against the shipped file before
+    # any backup or write: a mismatch raises MigrationChanged and touches nothing;
+    # an applied id with no checksum row is backfilled with a warning.
+    applied = _applied_ids(conn) if _yoyo_manages(conn) else set()
+    id_to_path = {p.stem: str(p) for p in directory.glob("*.sql") if _FILE.match(p.name)}
+    verify_checksums(conn, applied, id_to_path, now)
     # A DB the old runner made (a version but no yoyo table) is adopted: its
     # already-applied migrations are marked in yoyo WITHOUT being run, so 0001
     # is never re-executed on top of the existing schema.
