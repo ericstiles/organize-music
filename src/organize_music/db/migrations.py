@@ -23,6 +23,8 @@ from pathlib import Path
 import yoyo
 from yoyo.migrations import Migration
 
+from organize_music.db.migration_checksums import ensure_checksum_table, record_checksum
+
 __all__ = ["SchemaTooNew", "available", "migrate"]
 
 # The migrations directory shipped with the package.
@@ -165,8 +167,13 @@ def migrate(
             # crash can leave user_version behind a migration yoyo already
             # recorded, and recomputing from it would re-apply that migration
             # and fail. to_apply() skips whatever yoyo has already recorded.
+            # The checksum table is created by the runner (not a numbered
+            # migration); each migration is recorded only after it applies, so a
+            # migration that fails part-way leaves no checksum row.
+            ensure_checksum_table(conn)
             for migration in backend.to_apply(yoyo_migrations):
                 backend.apply_one(migration)
+                record_checksum(conn, migration.id, migration.path, now)
             # user_version is set to the highest version yoyo has recorded, not
             # to each migration's version as it lands: this both advances it and
             # repairs a value left lagging by a crash between the two writes.
