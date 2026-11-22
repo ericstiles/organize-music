@@ -1,0 +1,19 @@
+# bv (beads viewer) default view for organize_music.
+# A recipe file under .beads/recipes/ overrides bv's built-in recipe of the same
+# name, so a plain `bv` opens with these columns.
+# Valid columns: id, title, status, priority, assignee, created, updated,
+# tags (labels), blockers, repo.
+description: Open work by priority, with labels and blockers
+filters:
+  status:
+    - open
+    - in_progress
+    - blocked
+sort:
+  field: priority
+  direction: asc
+  secondary:
+    field: id
+view:
+  columns: [id, priority, status, title, tags, blockers, updated]
+  group_by: none
