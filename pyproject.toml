@@ -24,7 +24,13 @@ dependencies = [
 organize-music = "organize_music.cli:main"
 
 [tool.setuptools.package-data]
-organize_music = ["db/migrations/*.sql"]
+organize_music = [
+    "db/migrations/*.sql",
+    "web/templates/*.html",
+    "web/static/*.js",
+    "web/static/*.css",
+    "web/static/SHA256SUMS",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -53,6 +59,11 @@ select = [
     "B",   # flake8-bugbear
 ]
 ignore = []
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's Depends(...)/Query(...) are the documented way to declare request
+# dependencies and validated query parameters, so they are allowed in defaults.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["organize_music"]
