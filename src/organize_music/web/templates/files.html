@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Files{% endblock %}
+{% block content %}
+<section class="files">
+  <h2>Files &middot; page {{ page }} of {{ pages }}</h2>
+  <form method="get" action="/files" class="pager">
+    <button type="submit" name="page" value="{{ page - 1 }}" {% if page <= 1 %}disabled{% endif %}>Prev</button>
+    <span>Page {{ page }}</span>
+    <button type="submit" name="page" value="{{ page + 1 }}" {% if page >= pages %}disabled{% endif %}>Next</button>
+  </form>
+  <table class="files">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Path</th>
+        <th>Artist</th>
+        <th>Album</th>
+        <th>Title</th>
+        <th>Size</th>
+        <th>Status</th>
+        <th>Kind</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr data-file-id="{{ row.file_id }}">
+        <td>{{ row.file_id }}</td>
+        <td class="path">{{ row.path or row.last_path }}</td>
+        <td>{{ row.artist or "&mdash;" }}</td>
+        <td>{{ row.album or "&mdash;" }}</td>
+        <td class="title">{{ row.title or "&mdash;" }}</td>
+        <td>{{ row.size }}</td>
+        <td>{{ row.status }}</td>
+        <td>{{ row.kind }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="count">{{ total }} files</p>
+</section>
+{% endblock %}
