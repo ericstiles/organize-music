@@ -125,6 +125,10 @@ class FilesRepo:
         """Number of rows in ``files``."""
         return int(self._conn.execute("SELECT COUNT(*) FROM files").fetchone()[0])
 
+    def commit(self) -> None:
+        """Commit the caller's open transaction (e.g. a scan finishing its inserts)."""
+        self._conn.commit()
+
 
 # The columns FileRow projects, in dataclass order (so a row maps positionally).
 _SELECT = (
