@@ -67,6 +67,15 @@ def test_write_through_reader_raises(tmp_path):
         conn.close()
 
 
+def test_reader_on_missing_path_does_not_create_it(tmp_path):
+    # A read-only connection must never create the file (organize_music-8gz):
+    # a missing library.db must raise and leave no file behind.
+    path = tmp_path / "library.db"
+    with pytest.raises(sqlite3.OperationalError):
+        open_reader(path)
+    assert not path.exists()
+
+
 def test_second_writer_lock_is_busy(tmp_path):
     lock_path = tmp_path / "writer.lock"
     first = WriterLock(lock_path)
