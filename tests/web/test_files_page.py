@@ -62,6 +62,39 @@ def client(tmp_path: Path, n: int = 0, titles: dict[int, str] | None = None) -> 
     return TestClient(app)
 
 
+def bare_client(tmp_path: Path) -> tuple[TestClient, Path]:
+    """A TestClient over a state_dir with NO library.db, paired with the db path.
+
+    No database is created here, so a read-only ``/files`` request must not
+    create one (see organize_music-8gz).
+    """
+    db = tmp_path / "library.db"
+    overrides = {"state_dir": tmp_path, "library_mount": tmp_path}
+    app = create_app(load_config(None, overrides=overrides))
+    return TestClient(app), db
+
+
+def test_files_missing_db_does_not_create_it(tmp_path: Path) -> None:
+    # A fresh state_dir has no library.db; a read-only request must not create
+    # one, and must answer 503 rather than 500 with a traceback.
+    c, db = bare_client(tmp_path)
+    resp = c.get("/files")
+    assert resp.status_code == 503
+    assert not db.exists(), "GET /files must not create library.db"
+    assert "scan" in resp.text.lower()
+    assert "500" not in resp.text
+
+
+def test_files_zero_byte_db_is_503(tmp_path: Path) -> None:
+    # A 0-byte library.db (an empty file is a valid empty database) has no
+    # ``files`` table, so /files must answer 503, not 500.
+    c, db = bare_client(tmp_path)
+    db.write_bytes(b"")
+    resp = c.get("/files")
+    assert resp.status_code == 503
+    assert "scan" in resp.text.lower()
+
+
 def test_healthz_returns_200_json(tmp_path: Path) -> None:
     c = client(tmp_path)
     resp = c.get("/healthz")

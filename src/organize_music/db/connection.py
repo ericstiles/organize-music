@@ -10,6 +10,7 @@ import fcntl
 import os
 import sqlite3
 from pathlib import Path
+from urllib.parse import quote
 
 
 class WriterBusy(Exception):
@@ -27,8 +28,16 @@ def open_writer(path: Path) -> sqlite3.Connection:
 
 
 def open_reader(path: Path) -> sqlite3.Connection:
-    """Open library.db for read-only use; queries only, foreign keys on."""
-    conn = sqlite3.connect(path)
+    """Open library.db for read-only use; queries only, foreign keys on.
+
+    The connection is opened with ``mode=ro`` so it never creates a missing
+    file and never writes WAL/SHM side files: a read-only HTTP request must
+    leave the database untouched. A missing database raises
+    ``sqlite3.OperationalError`` (``unable to open database file``) and leaves
+    no file behind.
+    """
+    uri = f"file:{quote(str(path.resolve()), safe='/')}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA query_only=ON")
