@@ -168,3 +168,20 @@ def test_files_escapes_html_in_tag_values(tmp_path: Path) -> None:
     assert payload not in resp.text
     # ...but its escaped form does, so the value is still shown.
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in resp.text
+
+
+def test_files_empty_tag_cells_render_em_dash(tmp_path: Path) -> None:
+    # A fresh scan leaves artist/album/title NULL, so empty cells must show an
+    # em dash. With autoescape on, writing ``"&mdash;"`` as a fallback escapes
+    # it to ``&amp;mdash;`` and the browser shows the literal text ``&mdash;``.
+    # The fix must render a real em dash (the character or the entity as markup)
+    # and never the double-escaped form.
+    c = client(tmp_path, n=1)
+    resp = c.get("/files")
+    assert resp.status_code == 200
+    text = resp.text
+    # The double-escaped garbage must never reach the page.
+    assert "&amp;mdash;" not in text
+    # An em dash must be present, whether as the character or as the entity
+    # emitted from outside the escaped expression.
+    assert "—" in text or "&mdash;" in text

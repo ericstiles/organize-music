@@ -26,9 +26,9 @@
       <tr data-file-id="{{ row.file_id }}">
         <td>{{ row.file_id }}</td>
         <td class="path">{{ row.path or row.last_path }}</td>
-        <td>{{ row.artist or "&mdash;" }}</td>
-        <td>{{ row.album or "&mdash;" }}</td>
-        <td class="title">{{ row.title or "&mdash;" }}</td>
+        <td>{{ row.artist or "—" }}</td>
+        <td>{{ row.album or "—" }}</td>
+        <td class="title">{{ row.title or "—" }}</td>
         <td>{{ row.size }}</td>
         <td>{{ row.status }}</td>
         <td>{{ row.kind }}</td>

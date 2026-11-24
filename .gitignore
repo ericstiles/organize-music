@@ -44,3 +44,6 @@ dist/
 
 # hermes-launch run logs
 logs/
+
+# Beads auto-export (local-only, regenerated every 60s; not shared)
+.beads/issues.jsonl
