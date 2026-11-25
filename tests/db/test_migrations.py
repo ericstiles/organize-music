@@ -16,11 +16,15 @@ never re-run on it. Step 1b replaces that refusal with adoption.
 import hashlib
 import logging
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 from unittest import mock
 
 import pytest
+from support.faulty_fs import SimulatedCrash
 
+from organize_music.db import WriterBusy, WriterLock
 from organize_music.db import migrations as migrations_mod
 from organize_music.db.migrations import (
     MigrationChanged,
@@ -868,3 +872,206 @@ def test_migration_changed_after_a_missing_row_writes_nothing(tmp_path):
         assert backups_second == []
     finally:
         conn.close()
+
+
+# --- issue 3yw: migrate() runs under the single-writer lock -----------------
+#
+# b8p.37 item 1: "Run only inside WriterLock (db/connection.py)". migrate()
+# takes an optional ``lock_path``; when given it acquires ``WriterLock`` on
+# that path before anything happens and releases it on every exit (success,
+# refusal, crash). A second concurrent migrate() on the same lock -- another
+# process, or another fd in this one (flock conflicts per open file
+# description) -- is refused with WriterBusy before touching the database.
+# The crash matrix for the backup step: a crash during or right after the
+# backup write is recovered by re-running migrate() on a fresh connection.
+
+
+def _pending_setup(tmp_path: Path) -> tuple[Path, sqlite3.Connection, Path, Path]:
+    """A v1 DB (real 0001 applied) plus a temp migrations dir holding 0001+0002.
+
+    Returns (db_path, conn, migrations_dir, backups_dir): 0002_fake is pending
+    on an existing schema, so a migrate() takes a backup and then applies it.
+    """
+    path = tmp_path / "library.db"
+    conn = open_conn(path)
+    migrate(conn, path, tmp_path / "backups", "2026-01-01T00:00:00Z")
+    fake_dir = tmp_path / "migrations"
+    fake_dir.mkdir()
+    _copy_shipped_0001(fake_dir)
+    _fake_0002(fake_dir)
+    return path, conn, fake_dir, tmp_path / "backups"
+
+
+def _schema_names(conn: sqlite3.Connection) -> set[str]:
+    return {r[0] for r in conn.execute("SELECT name FROM sqlite_master").fetchall()}
+
+
+def _yoyo_ids(conn: sqlite3.Connection) -> list[str]:
+    return [r[0] for r in conn.execute("SELECT migration_id FROM _yoyo_migration").fetchall()]
+
+
+def _checksum_ids(conn: sqlite3.Connection) -> set[str]:
+    return {r[0] for r in conn.execute("SELECT migration_id FROM migration_checksums").fetchall()}
+
+
+def test_migrate_runs_under_writer_lock(tmp_path):
+    """migrate(lock_path=...) holds WriterLock for the whole call.
+
+    While the lock is held by someone else (the server), a concurrent
+    migrate() is refused with WriterBusy and touches nothing. When the lock
+    is free the call migrates, holds the lock at its first disk change, and
+    releases it on return.
+    """
+    path, conn, fake_dir, backups = _pending_setup(tmp_path)
+    now = "2026-03-01T12:00:00Z"
+    lock_path = tmp_path / "state" / "writer.lock"
+    lock_path.parent.mkdir()  # the state dir exists (owned by the state holder)
+    try:
+        # Refused: another holder has the writer lock.
+        with WriterLock(lock_path):
+            with pytest.raises(WriterBusy):
+                migrate(conn, path, backups, now, migrations_dir=fake_dir, lock_path=lock_path)
+        # The refused call touched nothing: still v1, no backup, no 0002.
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert not backups.exists() or list(backups.iterdir()) == []
+        assert "marker_0002" not in _schema_names(conn)
+        # Free lock: the call runs. At its first disk change (the backup) it
+        # must already hold the lock: a fresh fd cannot take it.
+        real_backup = migrations_mod._backup
+
+        def held_probe(c, b, old, t):
+            with pytest.raises(WriterBusy):
+                with WriterLock(lock_path):
+                    pass
+            real_backup(c, b, old, t)
+
+        with mock.patch.object(migrations_mod, "_backup", side_effect=held_probe):
+            version = migrate(
+                conn, path, backups, now, migrations_dir=fake_dir, lock_path=lock_path
+            )
+        assert version == 2
+        # The lock is released on return: re-acquirable.
+        with WriterLock(lock_path):
+            pass
+    finally:
+        conn.close()
+
+
+def test_second_concurrent_migrate_is_refused(tmp_path):
+    """A second PROCESS holding the lock refuses this process's migrate().
+
+    The server-vs-CLI scenario: a holder takes the flock in another process;
+    while it is held, migrate(lock_path=...) raises WriterBusy and touches
+    nothing. Once the holder exits, the same call completes.
+    """
+    path, conn, fake_dir, backups = _pending_setup(tmp_path)
+    now = "2026-03-01T12:00:00Z"
+    lock_path = tmp_path / "state" / "writer.lock"
+    lock_path.parent.mkdir()  # the state dir exists (owned by the state holder)
+    holder_src = (
+        "import fcntl, os, sys, time\n"
+        f"fd = os.open({str(lock_path)!r}, os.O_RDWR | os.O_CREAT)\n"
+        "fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
+        "sys.stdout.write('held\\n')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(60)\n"
+    )
+    holder = subprocess.Popen([sys.executable, "-c", holder_src], stdout=subprocess.PIPE, text=True)
+    try:
+        try:
+            assert holder.stdout.readline().strip() == "held"
+            with pytest.raises(WriterBusy):
+                migrate(conn, path, backups, now, migrations_dir=fake_dir, lock_path=lock_path)
+            # The refused call touched nothing.
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+            assert not backups.exists() or list(backups.iterdir()) == []
+            assert "marker_0002" not in _schema_names(conn)
+        finally:
+            holder.kill()
+            holder.wait()
+        # The holder is gone: the same call now completes.
+        assert migrate(conn, path, backups, now, migrations_dir=fake_dir, lock_path=lock_path) == 2
+    finally:
+        conn.close()
+
+
+def test_crash_after_backup_before_apply_recovers(tmp_path):
+    """Crash right after the backup is written; recovery = re-run migrate().
+
+    The backup step completes (the file is on disk), then power dies before
+    any migration applies. The live DB is untouched. A fresh connection
+    re-runs migrate(): it backs up again, applies 0002, and lands on a
+    consistent v2 -- and the writer lock is released by the crashed call.
+    """
+    path, conn, fake_dir, backups = _pending_setup(tmp_path)
+    now = "2026-03-01T12:00:00Z"
+    lock_path = tmp_path / "state" / "writer.lock"
+    real_backup = migrations_mod._backup
+
+    def crash_after(c, b, old, t):
+        real_backup(c, b, old, t)
+        raise SimulatedCrash("crash after the backup, before apply")
+
+    try:
+        with mock.patch.object(migrations_mod, "_backup", side_effect=crash_after):
+            with pytest.raises(SimulatedCrash):
+                migrate(conn, path, backups, now, migrations_dir=fake_dir, lock_path=lock_path)
+        # The crash left the backup on disk ...
+        assert (backups / f"library-v1-{now}.db").exists()
+        # ... but the live DB is untouched: still v1, 0002 absent and unrecorded.
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert "marker_0002" not in _schema_names(conn)
+        assert _yoyo_ids(conn) == ["0001_initial"]
+    finally:
+        conn.close()
+    # The crashed call released the writer lock: it is re-acquirable.
+    with WriterLock(lock_path):
+        pass
+    # Recovery: a fresh connection re-runs migrate and reaches consistent v2.
+    conn2 = open_conn(path)
+    try:
+        assert migrate(conn2, path, backups, "2026-03-02T00:00:00Z", migrations_dir=fake_dir) == 2
+        assert conn2.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert "marker_0002" in _schema_names(conn2)
+        assert _yoyo_ids(conn2) == ["0001_initial", "0002_fake"]
+        assert _checksum_ids(conn2) == {"0001_initial", "0002_fake"}
+    finally:
+        conn2.close()
+
+
+def test_crash_during_backup_recovers(tmp_path):
+    """Crash in the middle of writing the backup; recovery = re-run migrate().
+
+    The backup write is interrupted before the file is complete; the live DB
+    is untouched. Re-running migrate() takes a fresh backup and applies 0002.
+    """
+    path, conn, fake_dir, backups = _pending_setup(tmp_path)
+    now = "2026-03-01T12:00:00Z"
+    lock_path = tmp_path / "state" / "writer.lock"
+
+    def crash_during(c, b, old, t):
+        raise SimulatedCrash("crash during the backup write")
+
+    try:
+        with mock.patch.object(migrations_mod, "_backup", side_effect=crash_during):
+            with pytest.raises(SimulatedCrash):
+                migrate(conn, path, backups, now, migrations_dir=fake_dir, lock_path=lock_path)
+        # The live DB is untouched: still v1, 0002 absent and unrecorded.
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert "marker_0002" not in _schema_names(conn)
+        assert _yoyo_ids(conn) == ["0001_initial"]
+    finally:
+        conn.close()
+    # The crashed call released the writer lock: it is re-acquirable.
+    with WriterLock(lock_path):
+        pass
+    # Recovery: a fresh connection re-runs migrate and reaches consistent v2.
+    conn2 = open_conn(path)
+    try:
+        assert migrate(conn2, path, backups, "2026-03-02T00:00:00Z", migrations_dir=fake_dir) == 2
+        assert conn2.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert "marker_0002" in _schema_names(conn2)
+        assert _yoyo_ids(conn2) == ["0001_initial", "0002_fake"]
+        assert _checksum_ids(conn2) == {"0001_initial", "0002_fake"}
+    finally:
+        conn2.close()
