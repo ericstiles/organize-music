@@ -106,13 +106,14 @@ def test_healthz_returns_200_json(tmp_path: Path) -> None:
 
 
 def test_healthz_reports_db_false_when_library_db_missing(tmp_path: Path) -> None:
-    # No library.db was created, so the DB probe must report down, not crash.
+    # No library.db was created, so the DB probe must report down, and ok
+    # (every component healthy) must be false, not crash.
     overrides = {"state_dir": tmp_path, "library_mount": tmp_path}
     app = create_app(load_config(None, overrides=overrides))
     resp = TestClient(app).get("/healthz")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["ok"] is True
+    assert body["ok"] is False
     assert body["db"] is False
 
 
