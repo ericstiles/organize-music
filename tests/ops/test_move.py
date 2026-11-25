@@ -11,6 +11,7 @@ content is at exactly one of ``{src, via, dst}`` and is never lost or duplicated
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 
@@ -292,7 +293,11 @@ def test_case_only_rename_passes_through_staged(tmp_path: Path) -> None:
     assert out.state == "committed"
     # The destination exists with the new case; the source name is gone.
     assert (env.root / "a/One.mp3").is_file()
-    assert not (env.root / "a/one.mp3").exists()
+    # On a case-insensitive filesystem 'a/one.mp3' aliases the destination, so
+    # assert on the exact directory listing (the real, case-preserving names)
+    # rather than a case-sensitive Path.exists(), which would also match the new
+    # 'One.mp3' on APFS/HFS+ and make this test impossible there.
+    assert os.listdir(env.root / "a") == ["One.mp3"]
     # The oplog recorded the staged intermediate.
     row = env.conn.execute("SELECT state FROM operations WHERE op_id = ?", (env.op_id,)).fetchone()
     assert row[0] == "committed"
@@ -329,7 +334,22 @@ def test_move_survives_a_crash_at_every_point(tmp_path: Path, src_rel: str, dst_
             raise
         src, via, dst = env.locations()
         locations = [p for p in (src, via, dst) if p is not None]
-        present = [p for p in locations if p.is_file()]
+        # On a case-insensitive filesystem a case-only rename's src and dst
+        # (a/one.mp3 and a/One.mp3) alias one on-disk file, so count the
+        # distinct inodes that actually hold content rather than the distinct
+        # paths: the invariant is 'content at exactly one place', not 'one of
+        # these names'. Dedupe by (st_dev, st_ino) keeps the test honest on
+        # APFS/HFS+ while still catching a genuine duplicate (two inodes).
+        present: list[Path] = []
+        seen_inodes: set[tuple[int, int]] = set()
+        for p in locations:
+            if not p.is_file():
+                continue
+            key = (p.stat().st_dev, p.stat().st_ino)
+            if key in seen_inodes:
+                continue
+            seen_inodes.add(key)
+            present.append(p)
         assert len(present) == 1, (
             f"crash {crash_at}/{when}: expected exactly one location, "
             f"found {[str(p) for p in present]}"
