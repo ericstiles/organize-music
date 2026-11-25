@@ -783,3 +783,88 @@ def test_db_two_versions_behind_catches_up_in_one_call(tmp_path):
         assert "marker_0003" in names
     finally:
         conn.close()
+
+
+# --- issue dy0: MigrationChanged leaves no open transaction -----------------
+#
+# verify_checksums walked applied ids in sorted order and backfilled a missing
+# checksum row (an uncommitted INSERT) before a later id's mismatch could
+# raise MigrationChanged. That left the caller's connection holding an open
+# write transaction: a later conn.commit() would persist the backfill row,
+# and the DB stayed write-locked until the caller rolled back.
+
+
+def test_migration_changed_after_a_missing_row_writes_nothing(tmp_path):
+    """A mismatch that lands after a backfill leaves nothing written.
+
+    Repro: 0001 and 0002 applied in two calls; then DELETE 0001's checksum
+    row and commit, and edit 0002's file. migrate() must raise
+    MigrationChanged('0002_fake') with the caller's connection holding no
+    transaction, so no backfill row exists and nothing can be committed.
+    """
+    path = tmp_path / "library.db"
+    conn = open_conn(path)
+    backups = tmp_path / "backups"
+    fake_dir = tmp_path / "migrations"
+    fake_dir.mkdir()
+    _copy_shipped_0001(fake_dir)
+    _fake_0002(fake_dir)
+
+    single = tmp_path / "only_0001"
+    single.mkdir()
+    _copy_shipped_0001(single)
+    try:
+        # Apply 0001 and 0002 in two calls (the issue's repro).
+        assert migrate(conn, path, backups, "2026-01-01T00:00:00Z", migrations_dir=single) == 1
+        assert migrate(conn, path, backups, "2026-01-02T00:00:00Z", migrations_dir=fake_dir) == 2
+        checksum_ids = {
+            r[0] for r in conn.execute("SELECT migration_id FROM migration_checksums").fetchall()
+        }
+        assert checksum_ids == {"0001_initial", "0002_fake"}
+
+        # DELETE the 0001 checksum row (keep yoyo's record) and commit ...
+        conn.execute("DELETE FROM migration_checksums WHERE migration_id = '0001_initial'")
+        conn.commit()
+        # ... then edit 0002's file after it applied.
+        fake_dir.joinpath("0002_fake.sql").write_text(
+            "CREATE TABLE marker_0002_edited (x INTEGER);\n", encoding="utf-8"
+        )
+        # Snapshot the DB file AFTER the setup writes: the refused call must
+        # leave it byte-identical.
+        db_bytes = path.read_bytes()
+
+        with pytest.raises(MigrationChanged) as exc:
+            migrate(conn, path, backups, "2026-01-03T00:00:00Z", migrations_dir=fake_dir)
+        assert str(exc.value) == "0002_fake"
+
+        # The caller's connection holds no open write transaction ...
+        assert conn.in_transaction is False
+        # ... so the backfill row does not exist in the caller's view: only
+        # 0002's checksum row is there.
+        rows = [
+            r[0]
+            for r in conn.execute(
+                "SELECT migration_id FROM migration_checksums ORDER BY migration_id"
+            ).fetchall()
+        ]
+        assert rows == ["0002_fake"]
+        # ... and nothing was persisted either: a fresh connection (no
+        # transaction of its own) sees the same single row.
+        second = open_conn(path)
+        try:
+            rows_second = [
+                r[0]
+                for r in second.execute(
+                    "SELECT migration_id FROM migration_checksums ORDER BY migration_id"
+                ).fetchall()
+            ]
+            assert rows_second == ["0002_fake"]
+        finally:
+            second.close()
+        # The file on disk is byte-identical to the pre-call snapshot.
+        assert path.read_bytes() == db_bytes
+        # No backup was taken: the refusal happens before any backup.
+        backups_second = [p for p in backups.iterdir() if p.name.startswith("library-v2")]
+        assert backups_second == []
+    finally:
+        conn.close()

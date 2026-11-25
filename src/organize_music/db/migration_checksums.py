@@ -72,11 +72,15 @@ def verify_checksums(
 ) -> None:
     """Check every applied migration's stored checksum against its shipped file.
 
-    For each applied id that has a checksum row, compare the stored sha256 with
-    the shipped file's current bytes; a mismatch raises :class:`MigrationChanged`
-    and nothing is written. An applied id with no checksum row (a crash between
-    yoyo's record and ours, or a DB made by an earlier step) is backfilled with
-    the current file's hash and a warning is logged.
+    Pass 1 is read-only: for each applied id that has a checksum row, compare
+    the stored sha256 with the shipped file's current bytes, and a mismatch
+    raises :class:`MigrationChanged`. Pass 2 runs only after every checksum
+    has passed: an applied id with no checksum row (a crash between yoyo's
+    record and ours, or a DB made by an earlier step) is backfilled with the
+    current file's hash and a warning is logged. Checking before writing is
+    what guarantees a mismatch touches nothing: the connection is left with
+    no open transaction, so a later ``conn.commit()`` persists no backfill
+    and the database releases its write lock.
     """
     if not applied_ids:
         return
@@ -85,7 +89,10 @@ def verify_checksums(
         row[0]: row[1]
         for row in conn.execute(f"SELECT migration_id, sha256 FROM {CHECKSUM_TABLE}").fetchall()
     }
-    backfilled = False
+    # Pass 1 (read-only): check every applied checksum before writing anything,
+    # so a mismatch raises MigrationChanged without leaving an uncommitted
+    # backfill row behind.
+    missing: list[tuple[str, str]] = []
     for migration_id in sorted(applied_ids):
         path = id_to_path.get(migration_id)
         if path is None:
@@ -97,16 +104,18 @@ def verify_checksums(
             if stored[migration_id] != current:
                 raise MigrationChanged(migration_id)
         else:
-            record_checksum(conn, migration_id, path, now)
-            _log.warning(
-                "checksum for applied migration %s was missing; backfilled with the current file",
-                migration_id,
-            )
-            backfilled = True
+            missing.append((migration_id, path))
+    # Pass 2: every checksum passed, so backfill the missing rows.
+    for migration_id, path in missing:
+        record_checksum(conn, migration_id, path, now)
+        _log.warning(
+            "checksum for applied migration %s was missing; backfilled with the current file",
+            migration_id,
+        )
     # Commit the backfill so the caller's connection releases its write lock
     # before yoyo opens its own connection to the same file (an uncommitted
     # transaction would otherwise block yoyo and deadlock).
-    if backfilled:
+    if missing:
         conn.commit()
 
 
