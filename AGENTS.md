@@ -93,6 +93,12 @@ only. Interactive sessions keep the Conservative profile.
   no `@file` to a bd flag unless `bd <cmd> --help` says it reads files.
   After every bd write, verify with `bd show <id>`; if it did not land, fix it
   or print `RUN_BLOCKED`.
+- **Copy bead ids, never retype them.** Take the full id from the claim, the
+  `bd ready --json` output or `gh pr view`, and use it unchanged in every
+  `bd` command; never shorten it. Short and dotted ids look alike:
+  `<prefix>-225` and `<prefix>-b8p.25` are different beads. You may only
+  append notes to a bead you claimed in this run (the harness blocks others),
+  and the harness itself adds a missing `PR: <url>` line to the PR's beads.
 - Do exactly ONE issue per session:
   1. Pick the issue with exactly this command, and take the FIRST item:
      `bd ready --json --exclude-type epic --sort priority`
@@ -164,7 +170,7 @@ only. Interactive sessions keep the Conservative profile.
     force-push is allowed, and only to that branch. Change nothing else. Then
     step 6.
 - You ARE allowed and expected to create new beads issues. Do not ask first.
-  File one with `bd create "<title>" -t bug|task -p <0-4> --deps discovered-from:<id> -d "<self-contained description>" --acceptance "<checks a test can assert>" --silent`
+  File one with `bd create "<title>" -t bug|task -p <0-4> --deps discovered-from:<id> -d "<description: sections 1-9>" --design "<sections 10-13>" --acceptance "<section 14>" --silent`
   whenever you:
   - find a bug or gap outside your issue's scope (do not fix it in this PR);
   - resolve a spec conflict by guessing, e.g. an existing test contradicts the
@@ -175,30 +181,66 @@ only. Interactive sessions keep the Conservative profile.
   List the new ids in the PR body and in your final message. Before creating,
   run `bd list --all` and do not file a duplicate.
 
-  **Every issue you create must contain these sections** (a later agent sees
-  only the issue text plus this file, so nothing may be implied):
-  1. **Problem**: what is wrong or missing, and where (file and function).
-  2. **Repro** (bugs): the exact command(s) or a short script, with the
-     observed output and the expected output. No repro, no issue.
-  3. **Fix scope**: what to change, and a "Do NOT change" list. It must fit one
-     PR in one run; if it does not, split it into several issues.
-  4. **Base branch**: `main`, or the exact branch/PR it must be based on.
-  5. **Tests first (TDD, mandatory)**: name each regression test to write
+  **Every issue you create follows this template.** A later agent sees only
+  the issue text plus this file, so nothing may be implied. Fill every
+  section, or write `N/A: <reason>`; never leave a `<placeholder>`.
+
+  Description (`-d`):
+  1. **Goal**: one sentence: the fix or capability delivered.
+  2. **Why**: one or two sentences; do not restate a parent epic.
+  3. **Current state**: what exists now, with `file:line` references, the
+     current behavior, and what was already tried.
+  4. **Repro** (bugs only): the exact command(s) or a short script, then
+     **Expected:** and **Actual:** (with the error or trace). No repro, no bug.
+  5. **In scope**: the behaviors or components to change.
+  6. **Expected to modify**: the paths. Touching any other file needs a note
+     in the PR body saying why.
+  7. **Out of scope / Forbidden**: adjacent work to leave alone, and what
+     needs a new bead instead (new dependencies, schema changes, public API
+     changes, anything this repo's `AGENTS_LOCAL.md` lists). The stack and
+     quality gate live in `AGENTS_LOCAL.md`; do not repeat them here.
+  8. **Base branch**: `main`, or the exact branch/PR it must be based on.
+  9. **Tests first (TDD, mandatory)**: name each regression test to write
      (file and test function name). The implementer must write these first,
      run them and see each FAIL on the current code for the stated reason,
      then implement until they PASS. The PR body must list the test names and
      paste the failing output from before the fix. Do not weaken or delete an
      existing test to make it pass; if an existing test contradicts the issue,
      say which one and file it per the spec-conflict rule above.
-  6. **Acceptance** (`--acceptance`): checks a test can assert (exact status
-     codes, exact output, exact exit codes), one test per check.
-  7. **Constraints**: the stack and dependency limits and the quality gate
-     from `AGENTS_LOCAL.md`, files not to touch, existing tests must keep
-     passing, and conventional commit messages.
-  8. **Dependencies**: `--deps blocked-by:<id>` for anything that must land
-     first; only `discovered-from:<id>` for issues you found while working.
+
+  Design (`--design`):
+  10. **Approach**: patterns or helpers to reuse, with paths.
+  11. **Invariants**: what must not break (or `N/A: <reason>`).
+  12. **Edge cases**: what must be handled (or `N/A: <reason>`).
+  13. **Produces for downstream**: the interface or contract other beads rely
+      on (or `N/A: <reason>`).
+
+  Acceptance (`--acceptance`):
+  14. One `[ ]` line per check a test can assert (exact output, exact exit
+      code, exact status), one test per check, plus:
+      `[ ] <exact command> passes`,
+      `[ ] the quality gate from AGENTS_LOCAL.md passes`,
+      `[ ] git diff --stat shows only the Expected-to-modify paths (or the PR
+      body explains each other one)`.
+
+  Dependencies are not a section: put them in the graph with
+  `--deps blocked-by:<id>` for anything that must land first, and
+  `discovered-from:<id>` for issues you found while working. Never only in
+  prose.
   Set priority by impact: data loss or security is P1, wrong behavior is P2,
   polish or docs is P3.
+
+  **Standing rules for every issue:**
+  - Write it for an agent with no access to your session.
+  - Size it to one PR in one run. If it crosses subsystems or would not fit,
+    split it into several issues before filing.
+  - If, while working an issue, the work needs files outside its Expected to
+    modify in another subsystem, or an assumption it rests on fails: file a
+    new issue (`discovered-from:<id>`) for the extra work and finish the
+    original scope; if the original scope cannot be finished without it,
+    follow step 5 (blocked). Do not expand scope.
+  - Wrong facts in an issue are not a scope change: follow what you verified
+    and name the difference in the PR body (see Working habits).
 - Never push to main, never merge, never force-push (sole exception: a rebase
   fix, `--force-with-lease` to its `bd/<T>` branch), never edit CI/secrets
   config, never commit `.envrc.local` or real host names, IPs or paths (use
