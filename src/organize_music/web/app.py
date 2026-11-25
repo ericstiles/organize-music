@@ -9,6 +9,7 @@ each request opens its own read-only connection to the database.
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 from pathlib import Path
@@ -24,6 +25,8 @@ from organize_music.web import routes_files
 
 # library.db lives beside the rest of the state (backups, the writer lock, ...).
 _DB_NAME = "library.db"
+
+_LOG = logging.getLogger(__name__)
 
 
 def create_app(config: Config) -> FastAPI:
@@ -83,15 +86,22 @@ def _db_ok(db_path: Path) -> bool:
     cannot serve any page (``/files`` fails with ``no such table: files``).
     A migrated database with an empty ``files`` table reports True. The
     check is read-only: the reader connection is ``query_only`` and the
-    probe is a single ``SELECT``.
+    probe is a single ``SELECT``. If opening the file raises, the error is
+    logged at warning level and the probe reports False.
     """
     if not db_path.is_file():
         return False
-    conn = open_reader(db_path)
+    conn: sqlite3.Connection | None = None
     try:
+        conn = open_reader(db_path)
         conn.execute("SELECT 1 FROM files LIMIT 1").fetchone()
         return True
-    except sqlite3.DatabaseError:
+    except sqlite3.Error as exc:
+        # Opening can fail too (unreadable file, I/O error, bad PRAGMA): log it
+        # with the path and report db: false instead of a 500
+        # (organize_music-8ct). The JSON carries no error details.
+        _LOG.warning("healthz probe failed for %s: %s", db_path, exc)
         return False
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()

@@ -6,12 +6,14 @@ page, server-side paging over the ``files`` table). Pages are Jinja2-rendered
 with autoescape on, so untrusted tag values can never inject markup.
 """
 
+import logging
 import sqlite3
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+import organize_music.web.app as web_app
 from organize_music.config import load_config
 from organize_music.db import migrate
 from organize_music.db.files_repo import FileRow, FilesRepo
@@ -133,6 +135,65 @@ def test_healthz_reports_db_false_for_corrupt_file(tmp_path: Path) -> None:
     resp = TestClient(app).get("/healthz")
     assert resp.status_code == 200
     assert resp.json()["db"] is False
+
+
+def test_healthz_ok_false_when_open_reader_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # library.db exists but open_reader raises (unreadable file, I/O error,
+    # locked file, bad PRAGMA): the exception must not escape /healthz, which
+    # must answer 200 with db: false and ok: false, not 500 (organize_music-8ct).
+    (tmp_path / "library.db").write_bytes(b"")
+
+    def _raise(path: Path) -> sqlite3.Connection:
+        raise sqlite3.OperationalError("unable to open database file")
+
+    monkeypatch.setattr(web_app, "open_reader", _raise)
+    overrides = {"state_dir": tmp_path, "library_mount": tmp_path}
+    app = create_app(load_config(None, overrides=overrides))
+    resp = TestClient(app).get("/healthz")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["db"] is False
+    assert body["ok"] is False
+
+
+def test_healthz_ok_false_for_non_sqlite_bytes(tmp_path: Path) -> None:
+    # A file that is not a valid SQLite database (a fixed non-SQLite header):
+    # the probe raises sqlite3.DatabaseError, so /healthz answers 200 with
+    # db: false and ok: false (organize_music-8ct).
+    (tmp_path / "library.db").write_bytes(b"\xde\xad\xbe\xef" * 256)
+    overrides = {"state_dir": tmp_path, "library_mount": tmp_path}
+    app = create_app(load_config(None, overrides=overrides))
+    resp = TestClient(app).get("/healthz")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["db"] is False
+    assert body["ok"] is False
+
+
+def test_healthz_logs_probe_failure_at_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The probe failure must be visible in the server log (with the path)
+    # while the JSON body stays {ok, db, library_mounted} with no error
+    # details (organize_music-8ct).
+    (tmp_path / "library.db").write_bytes(b"")
+
+    def _raise(path: Path) -> sqlite3.Connection:
+        raise sqlite3.OperationalError("unable to open database file")
+
+    monkeypatch.setattr(web_app, "open_reader", _raise)
+    # The drive is mounted (organize_music-g5v): a plain tmp dir is not a mount point.
+    monkeypatch.setattr("os.path.ismount", lambda path: str(path) == str(tmp_path))
+    overrides = {"state_dir": tmp_path, "library_mount": tmp_path}
+    app = create_app(load_config(None, overrides=overrides))
+    with caplog.at_level(logging.WARNING):
+        resp = TestClient(app).get("/healthz")
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": False, "db": False, "library_mounted": True}
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("library.db" in r.getMessage() for r in warnings)
 
 
 def test_files_shows_rows(tmp_path: Path) -> None:
