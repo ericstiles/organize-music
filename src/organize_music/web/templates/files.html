@@ -36,6 +36,9 @@
       {% endfor %}
     </tbody>
   </table>
+  {% if not rows %}
+  <p class="empty">No files in the library. Run the scan to populate it.</p>
+  {% endif %}
   <p class="count">{{ total }} files</p>
 </section>
 {% endblock %}
