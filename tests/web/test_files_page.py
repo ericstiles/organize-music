@@ -96,7 +96,14 @@ def test_files_zero_byte_db_is_503(tmp_path: Path) -> None:
     assert "scan" in resp.text.lower()
 
 
-def test_healthz_returns_200_json(tmp_path: Path) -> None:
+def test_healthz_returns_200_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Simulate the drive being mounted at the configured path: a plain tmp dir
+    # is not a mount point, so os.path.ismount is patched true for it
+    # (issue organize_music-g5v).
+    def fake_ismount(path: str | Path) -> bool:
+        return str(path) == str(tmp_path)
+
+    monkeypatch.setattr("os.path.ismount", fake_ismount)
     c = client(tmp_path)
     resp = c.get("/healthz")
     assert resp.status_code == 200

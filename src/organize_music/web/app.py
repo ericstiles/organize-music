@@ -9,6 +9,7 @@ each request opens its own read-only connection to the database.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 
@@ -44,12 +45,12 @@ def _healthz(request: Request) -> JSONResponse:
 
     ``ok`` is true only when every component is healthy: the database
     carries the migrated ``files`` table (``db``) and the library mount
-    exists (``library_mounted``).
+    is a real mount point (``library_mounted``).
     """
     db_path: Path = request.app.state.db_path
     mount: Path = request.app.state.library_mount
     db = _db_ok(db_path)
-    mounted = mount.exists()
+    mounted = _library_mounted(mount)
     return JSONResponse(
         {
             "ok": db and mounted,
@@ -57,6 +58,19 @@ def _healthz(request: Request) -> JSONResponse:
             "library_mounted": mounted,
         }
     )
+
+
+def _library_mounted(mount: Path) -> bool:
+    """True when ``library_mount`` is a real mount point.
+
+    ``library_mount`` must be configured as the mount point itself (the
+    default config already does this). A subdirectory of the mount is never
+    a mount point, and so is the empty folder that remains after the drive
+    is unmounted or unplugged — so both report False, which is exactly the
+    outage monitoring needs to see. A missing path also reports False
+    (``os.path.ismount`` is False for paths that cannot be stat'ed).
+    """
+    return os.path.ismount(mount)
 
 
 def _db_ok(db_path: Path) -> bool:
