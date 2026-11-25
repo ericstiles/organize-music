@@ -40,32 +40,42 @@ def create_app(config: Config) -> FastAPI:
 
 
 def _healthz(request: Request) -> JSONResponse:
-    """``GET /healthz``: DB openable, library mounted, service up (no auth)."""
+    """``GET /healthz``: DB healthy, library mounted (no auth).
+
+    ``ok`` is true only when every component is healthy: the database
+    carries the migrated ``files`` table (``db``) and the library mount
+    exists (``library_mounted``).
+    """
     db_path: Path = request.app.state.db_path
     mount: Path = request.app.state.library_mount
+    db = _db_ok(db_path)
+    mounted = mount.exists()
     return JSONResponse(
         {
-            "ok": True,
-            "db": _db_ok(db_path),
-            "library_mounted": mount.exists(),
+            "ok": db and mounted,
+            "db": db,
+            "library_mounted": mounted,
         }
     )
 
 
 def _db_ok(db_path: Path) -> bool:
-    """True when ``library.db`` exists and opens as a readable SQLite database.
+    """True when ``library.db`` exists, opens, and has a queryable ``files`` table.
 
     A missing file reports False. A present-but-corrupt file (not a valid
-    database) reports False: ``SELECT 1`` is a constant that never touches the
-    file, so the probe reads ``sqlite_master`` instead, which raises
-    ``DatabaseError`` on a corrupt file. An empty file is a valid empty
-    database and reports True.
+    database) reports False: the probe's query raises ``DatabaseError`` on
+    a corrupt file. A zero-byte file or an unmigrated database opens fine
+    but has no ``files`` table, and reports False: a schema-less database
+    cannot serve any page (``/files`` fails with ``no such table: files``).
+    A migrated database with an empty ``files`` table reports True. The
+    check is read-only: the reader connection is ``query_only`` and the
+    probe is a single ``SELECT``.
     """
     if not db_path.is_file():
         return False
     conn = open_reader(db_path)
     try:
-        conn.execute("SELECT name FROM sqlite_master LIMIT 1").fetchone()
+        conn.execute("SELECT 1 FROM files LIMIT 1").fetchone()
         return True
     except sqlite3.DatabaseError:
         return False
