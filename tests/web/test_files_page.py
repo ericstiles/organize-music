@@ -9,11 +9,12 @@ with autoescape on, so untrusted tag values can never inject markup.
 import sqlite3
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from organize_music.config import load_config
 from organize_music.db import migrate
-from organize_music.db.files_repo import FilesRepo
+from organize_music.db.files_repo import FileRow, FilesRepo
 from organize_music.models import FileRecord
 from organize_music.web.app import create_app
 
@@ -152,6 +153,32 @@ def test_files_page_zero_and_non_int_are_422(tmp_path: Path) -> None:
     assert c.get("/files?page=abc").status_code == 422
 
 
+def test_files_out_of_range_page_redirects_to_last_page(tmp_path: Path) -> None:
+    # 150 rows -> 2 pages. page=999 must not render an empty table titled
+    # "page 999 of 2" with a Prev link to 998; it must bounce to the real
+    # last page (303).
+    c = client(tmp_path, n=150)
+    resp = c.get("/files?page=999", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/files?page=2"
+    # ...and the redirect target renders the (non-empty) last page.
+    landed = c.get("/files?page=2")
+    assert landed.status_code == 200
+    assert landed.text.count("data-file-id=") == 50
+    assert "page 2 of 2" in landed.text
+
+
+def test_files_empty_database_shows_page_one_of_one(tmp_path: Path) -> None:
+    # 0 rows: page 1 of 1 with an empty-state message and NO redirect (pages
+    # floors at 1, so page=1 is in range and must not loop).
+    c = client(tmp_path)
+    resp = c.get("/files", follow_redirects=False)
+    assert resp.status_code == 200
+    assert "page 1 of 1" in resp.text
+    assert resp.text.count("data-file-id=") == 0
+    assert "no files" in resp.text.lower()
+
+
 def test_root_redirects_to_files(tmp_path: Path) -> None:
     c = client(tmp_path, n=1)
     resp = c.get("/", follow_redirects=False)
@@ -185,3 +212,31 @@ def test_files_empty_tag_cells_render_em_dash(tmp_path: Path) -> None:
     # An em dash must be present, whether as the character or as the entity
     # emitted from outside the escaped expression.
     assert "—" in text or "&mdash;" in text
+
+
+def test_files_page_and_count_share_one_read_transaction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The rows and the total must come from one read transaction: with two
+    # autocommit SELECTs, a scan committing between them makes "N files /
+    # page X of Y" disagree with the rows shown. Spy on the connection's
+    # ``in_transaction`` flag at the moment each read starts.
+    c = client(tmp_path, n=150)
+    seen: list[bool] = []
+    real_page, real_count = FilesRepo.page, FilesRepo.count
+
+    def spy_page(self: FilesRepo, offset: int, limit: int) -> list[FileRow]:
+        seen.append(self._conn.in_transaction)
+        return real_page(self, offset, limit)
+
+    def spy_count(self: FilesRepo) -> int:
+        seen.append(self._conn.in_transaction)
+        return real_count(self)
+
+    monkeypatch.setattr(FilesRepo, "page", spy_page)
+    monkeypatch.setattr(FilesRepo, "count", spy_count)
+    resp = c.get("/files?page=2")
+    assert resp.status_code == 200
+    # Both SELECTs must start while a read transaction is open, i.e. they
+    # share one snapshot instead of running as two autocommit reads.
+    assert seen == [True, True]
