@@ -142,4 +142,6 @@ Tools come from the hermes-harness repo (on PATH). Run them from this repo.
 - Start runs only via `hermes-launch` (opens the herdr tab `hermes-run`;
   refuses if a run is active or `GH_TOKEN` is unset).
 - While a run is active, re-check no sooner than every 20-30 minutes.
+- When you file beads for Hermes, follow the issue template and standing rules
+  in `AGENTS.md` ("Every issue you create follows this template").
 <!-- END HERMES-HARNESS -->
