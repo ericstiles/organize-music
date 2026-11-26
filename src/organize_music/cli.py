@@ -13,6 +13,7 @@ from organize_music.cli_commands import (
     run_meta,
     run_tags,
 )
+from organize_music.cli_serve import run_recover, run_serve
 from organize_music.config import Config, ConfigError, load_config
 from organize_music.scanner import LibraryNotFoundError
 
@@ -78,6 +79,16 @@ def _parser() -> argparse.ArgumentParser:
     tags.add_argument("--config", type=Path, default=None, help="YAML config file")
     tags.add_argument("--raw", action="store_true", help="dump every stored tag, uninterpreted")
     tags.set_defaults(run=lambda a, c: run_tags(a.path, a.raw))
+
+    serve = sub.add_parser(
+        "serve", help="run the web server (takes the writer lock for its lifetime)"
+    )
+    serve.add_argument("--config", type=Path, default=None, help="YAML config file")
+    serve.set_defaults(run=lambda a, c: run_serve(c))
+
+    rec = sub.add_parser("recover", help="recover interrupted operations and exit")
+    rec.add_argument("--config", type=Path, default=None, help="YAML config file")
+    rec.set_defaults(run=lambda a, c: run_recover(c))
     return parser
 
 
