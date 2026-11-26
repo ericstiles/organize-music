@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Rename{{ " " ~ (row.path or row.last_path) if row else "" }}{% endblock %}
+{% block content %}
+<section class="rename">
+  <h2>Rename file</h2>
+  {% if row %}
+  <p class="path">{{ row.path or row.last_path }} &middot; {{ row.size }} bytes &middot; {{ row.status }}</p>
+  {% endif %}
+  {% if error %}
+  <div class="error" data-code="{{ error.code }}">
+    <strong>{{ error.code }}</strong>: {{ error.message }}
+  </div>
+  {% endif %}
+  {% if draft_id is not none and not error %}
+  <p class="preview">Preview: <span class="from">{{ row.path }}</span> &rarr; <span class="to">{{ proposed }}</span></p>
+  <p class="precond">Precondition captured at preview time: {{ row.size }} bytes, mtime {{ row.mtime_ns }}, row version {{ row.row_version }}.</p>
+  <form method="post" action="/batches/{{ draft_id }}/confirm">
+    <button type="submit">Confirm</button>
+  </form>
+  {% elif not error %}
+  <form method="post" action="/files/{{ row.file_id }}/rename">
+    <label for="new_name">New filename</label>
+    <input id="new_name" name="new_name" value="{{ default_name }}" required />
+    <button type="submit">Preview</button>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

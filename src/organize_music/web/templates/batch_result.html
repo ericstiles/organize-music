@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Batch result{% endblock %}
+{% block content %}
+<section class="batch-result">
+  <h2>Batch #{{ batch_id }} result</h2>
+  {% if error %}
+  <div class="error" data-code="{{ error.code }}">
+    <strong>{{ error.code }}</strong>: {{ error.message }}
+  </div>
+  {% else %}
+  <p class="path">{{ old_path }} &rarr; {{ new_path }}</p>
+  {% if state == "committed" %}
+  <p class="ok">Renamed successfully.</p>
+  {% elif state %}
+  <div class="error" data-code="{{ error_code or state }}">
+    <strong>{{ error_code or state }}</strong>: the operation ended in &lsquo;{{ state }}&rsquo;.
+  </div>
+  {% endif %}
+  {% if halted %}
+  <p class="warn">{{ halted }}</p>
+  {% endif %}
+  {% endif %}
+  <p>
+    <a href="/files">Back to files</a>
+    {% if file_id is not none and not error %}
+    &middot; <a href="/files/{{ file_id }}/rename">Rename again</a>
+    {% endif %}
+  </p>
+</section>
+{% endblock %}
