@@ -1,10 +1,11 @@
 """App factory for the library web UI (PLAN §9.1, issue b8p.29).
 
 ``create_app`` builds a FastAPI application over ``library.db``: a JSON
-``/healthz`` probe, a redirect from ``/`` to ``/files``, and the paged
-``/files`` list. Templates render with Jinja2 autoescape on; the vendored
-htmx script is served from ``/static``. The app holds no write connection:
-each request opens its own read-only connection to the database.
+``/healthz`` probe, a redirect from ``/`` to ``/files``, the paged ``/files``
+list, and the rename-one preview/confirm routes (PLAN §6.4, issue b8p.30).
+Templates render with Jinja2 autoescape on; the vendored htmx script is served
+from ``/static``. Read-only routes hold no write connection: each request
+opens its own read-only connection to the database.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from starlette.templating import Jinja2Templates
 
 from organize_music.config import Config
 from organize_music.db.connection import open_reader
-from organize_music.web import routes_files
+from organize_music.web import routes_files, routes_rename_one
 
 # library.db lives beside the rest of the state (backups, the writer lock, ...).
 _DB_NAME = "library.db"
@@ -36,8 +37,14 @@ def create_app(config: Config) -> FastAPI:
     templates_dir = Path(__file__).parent / "templates"
     app.state.db_path = config.state_dir / _DB_NAME
     app.state.library_mount = config.library_mount
+    app.state.library_root = config.library
+    app.state.mutations_enabled = config.mutations_enabled
+    app.state.work_dir = config.work_dir
+    app.state.purge_dir = config.purge_dir
+    app.state.state_dir = config.state_dir
     app.state.templates = Jinja2Templates(directory=templates_dir)
     app.include_router(routes_files.router)
+    app.include_router(routes_rename_one.router)
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
     app.add_api_route("/healthz", _healthz, methods=["GET"])
     return app
