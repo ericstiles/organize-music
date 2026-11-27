@@ -93,7 +93,9 @@ def rename_noreplace(src: Path, dst: Path) -> None:
 
     if rc != 0:
         err = ctypes.get_errno()
-        if err == errno.EEXIST:
+        if err in (errno.EEXIST, errno.ENOTEMPTY):
+            # EEXIST from renameat2(RENAME_NOREPLACE); ENOTEMPTY is how darwin
+            # renamex_np(RENAME_EXCL) reports an occupied destination.
             raise DestinationExists(f"destination already exists: {dst}")
         if err in (errno.EINVAL, errno.ENOSYS):
             raise UnsupportedPlatform(f"no-replace rename unsupported (errno {err})")
