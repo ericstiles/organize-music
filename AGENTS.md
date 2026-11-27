@@ -22,7 +22,7 @@ only. Interactive sessions keep the Conservative profile.
  hermes-run (one Hermes session = one issue)
         │
         ▼
- bd ready --exclude-type epic --sort priority → take the FIRST item
+ bd ready --exclude-type epic --exclude-label owner-present --sort priority → take the FIRST item
         │                                        (empty → NO_READY_WORK)
         ├─────────────── normal issue T ─────────────────┐
         │                                                ▼
@@ -106,15 +106,16 @@ only. Interactive sessions keep the Conservative profile.
   do not apply to these runs: use only the git commands in this workflow.
 - Do exactly ONE issue per session:
   1. Pick the issue with exactly this command, and take the FIRST item:
-     `bd ready --json --exclude-type epic --sort priority`
+     `bd ready --json --exclude-type epic --exclude-label owner-present --sort priority`
      (highest priority first; dependencies already filter out anything not
-     yet unblocked). Do not pick by title, label or your own judgement, and
-     never work an epic: epics are containers closed by their children. The one
-     exception: if your prompt says `Work issue <id>`, take that issue instead
-     (`hermes-run` is working a blocker chain). If the
-     list is empty, run `bd dolt pull` once and repeat the command; if it is
-     still empty, print `NO_READY_WORK` and stop. Do not investigate the
-     unfiltered list.
+     yet unblocked, and issues labelled `owner-present` are for a person to
+     run). If your prompt gives another pick command, use that one. Do not
+     pick by title, label or your own judgement, and never work an epic: epics
+     are containers closed by their children. The one exception: if your
+     prompt says `Work issue <id>`, take that issue instead (`hermes-run`
+     chose it). If the list is empty, run `bd dolt pull` once and repeat the
+     command; if it is still empty, print `NO_READY_WORK` and stop. Do not
+     investigate the unfiltered list.
   2. `bd update <id> --claim --json`, then `bd dolt push` (so the host sees the
      claim at once), then `bd show <id>`. If the issue has the label
      `review-fix`, follow "Review-fix issues" below instead of steps 3-4.
@@ -303,8 +304,10 @@ only. Interactive sessions keep the Conservative profile.
     and name the difference in the PR body (see Working habits).
 - Never push to main, never merge, never force-push (sole exception: a rebase
   fix, `--force-with-lease` to its `bd/<T>` branch), never edit CI/secrets
-  config, never commit `.envrc.local` or real host names, IPs or paths (use
-  the environment variables `AGENTS_LOCAL.md` names).
+  config, never commit `.envrc.local`.
+- Never write real host names, IP addresses, usernames or home or library paths
+  into notes, PR text, commit messages or files: name the environment variable
+  `AGENTS_LOCAL.md` gives for them (e.g. `$PI_HOST`).
 - Sync beads before finishing (`bd dolt push`).
 
 ### Working habits
