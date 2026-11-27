@@ -95,19 +95,33 @@ class Env:
             "mutations_enabled": mutations_enabled,
         }
         self.lock: WriterLock | None = None
+        self.wconn: sqlite3.Connection | None = None
         if server_owned_lock:
             # The shape of serve (run_serve): take the lock, open the startup
-            # write connection (which also puts library.db in WAL mode, as
-            # serve's startup does), then hand the held lock to the app.
+            # write connection (which puts library.db in WAL mode, as serve's
+            # startup does) and keep it open for the app's lifetime (serve
+            # closes it only at shutdown), then hand the held lock to the app.
+            # The one read forces the WAL side files (-shm/-wal) to exist
+            # while the connection is open: a mode=ro reader (open_reader)
+            # cannot create them, and SQLite 3.51 on macOS refuses to open a
+            # WAL database that has no -shm file
+            # ("unable to open database file").
             self.lock = WriterLock(self.state / "writer.lock")
             self.lock.__enter__()
-            wconn = open_writer(self.db)
-            wconn.close()
+            self.wconn = open_writer(self.db)
+            self.wconn.execute("SELECT 1 FROM files LIMIT 1").fetchone()
         self.app = create_app(load_config(None, overrides=overrides), writer_lock=self.lock)
         self.client = TestClient(self.app)
 
     def close(self) -> None:
-        """Release the held lock, if any (the fd is unique to this test's state dir)."""
+        """Release the held lock, if any (the fd is unique to this test's state dir).
+
+        The startup write connection is closed before the lock is released:
+        while it is open, the lock is held (the server's startup invariant).
+        """
+        if self.wconn is not None:
+            self.wconn.close()
+            self.wconn = None
         if self.lock is not None:
             self.lock.__exit__(None, None, None)
             self.lock = None
