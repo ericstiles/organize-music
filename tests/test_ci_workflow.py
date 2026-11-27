@@ -23,10 +23,25 @@ def _triggers(workflow: dict) -> dict:
     return triggers
 
 
-def _job(workflow: dict) -> dict:
+def _jobs(workflow: dict) -> dict:
     jobs = workflow.get("jobs")
-    assert isinstance(jobs, dict) and len(jobs) == 1, "expected exactly one job"
-    return next(iter(jobs.values()))
+    assert isinstance(jobs, dict), "expected a jobs mapping"
+    return jobs
+
+
+def _job(workflow: dict) -> dict:
+    return _jobs(workflow)["quality-gate"]
+
+
+def _audit_job(workflow: dict) -> dict:
+    jobs = _jobs(workflow)
+    assert "audit" in jobs, "ci.yml has no 'audit' job"
+    return jobs["audit"]
+
+
+def _audit_runs(workflow: dict) -> list[str]:
+    """Run commands of every step that has a ``run`` key, in order."""
+    return [step.get("run", "") for step in _audit_job(workflow)["steps"] if "run" in step]
 
 
 def _runs(workflow: dict) -> list[str]:
@@ -91,3 +106,35 @@ def test_ci_workflow_enforces_80_percent_coverage() -> None:
     pytest_runs = [run for run in runs if "pytest" in run]
     assert pytest_runs, "no pytest step"
     assert any("--cov-fail-under=80" in run for run in pytest_runs)
+
+
+def test_ci_has_audit_job_running_pip_audit_strict() -> None:
+    workflow = _load()
+    job = _audit_job(workflow)
+    assert job.get("runs-on") == "ubuntu-latest"
+    setups = [
+        step for step in job["steps"] if step.get("uses", "").startswith("actions/setup-python@")
+    ]
+    assert setups, "audit job has no actions/setup-python step"
+    assert all(step.get("with", {}).get("python-version") == "3.12" for step in setups)
+    runs = _audit_runs(workflow)
+    assert any("pip-audit --strict" in run and "--skip-editable" in run for run in runs), (
+        "audit job must run 'pip-audit --strict --skip-editable'"
+    )
+
+
+def test_audit_job_installs_project_before_auditing() -> None:
+    workflow = _load()
+    runs = _audit_runs(workflow)
+    install_idx = [i for i, run in enumerate(runs) if "-e '.[dev]'" in run]
+    audit_idx = [i for i, run in enumerate(runs) if "pip-audit --strict" in run]
+    assert install_idx, "audit job does not install the project (editable dev install)"
+    assert audit_idx, "audit job does not run pip-audit"
+    assert min(install_idx) < min(audit_idx), (
+        "the project install must come before the pip-audit run"
+    )
+    pip_audit_install_idx = [i for i, run in enumerate(runs) if "pip install pip-audit" in run]
+    assert pip_audit_install_idx, "audit job does not install pip-audit"
+    assert min(pip_audit_install_idx) < min(audit_idx), (
+        "pip-audit must be installed before it is run"
+    )
