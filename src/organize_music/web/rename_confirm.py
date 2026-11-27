@@ -1,7 +1,6 @@
-"""Confirm side of rename-one (b8p.30, PLAN §6.4/§9.4).
-
-Re-check the draft's ``row_version`` precondition, consume the draft, copy it
-into library.db, run ``run_move`` and settle the batch.
+"""Confirm side of rename-one (b8p.30, PLAN §6.4/§9.4): re-check the draft's
+``row_version`` precondition, consume it, copy it into library.db, run
+``run_move`` and settle the batch.
 """
 
 from __future__ import annotations
@@ -25,7 +24,6 @@ from organize_music.web import drafts
 
 _LOG = logging.getLogger(__name__)
 
-# The confirm's error answers, as (code, message).
 _DISABLED = ("MUTATIONS_DISABLED", "mutations are disabled (config mutations_enabled: false)")
 _NOT_CONFIGURED = ("LIBRARY_NOT_CONFIGURED", "set the config 'library' path")
 _NOT_INIT = ("NOT_INITIALISED", "run the scan first")
@@ -64,11 +62,17 @@ def confirm(request: Request, batch_id: int) -> Response:
     db_path = state.db_path
     if not db_path.is_file():
         return _render(request, batch_id, None, None, None, _NOT_INIT, 503)
-    try:
-        with WriterLock(state.state_dir / "writer.lock"):
-            conn = open_writer(db_path)
-    except WriterBusy:
-        return _render(request, batch_id, None, None, None, _WRITER_BUSY, 503)
+    if state.writer_lock is not None:
+        # The process owns the writer lock (serve holds it for the server's
+        # lifetime, PLAN §6.4 "One writer"); a second in-process acquisition
+        # is always denied, so write directly without re-acquiring.
+        conn = open_writer(db_path)
+    else:
+        try:
+            with WriterLock(state.state_dir / "writer.lock"):
+                conn = open_writer(db_path)
+        except WriterBusy:
+            return _render(request, batch_id, None, None, None, _WRITER_BUSY, 503)
     try:
         return _confirm_in_conn(request, state, conn, batch_id)
     finally:
@@ -80,9 +84,8 @@ def _confirm_in_conn(
 ) -> Response:
     """Re-check the draft, copy it into library.db, run and settle the op.
 
-    The draft is consumed (deleted) before the copy: a crash in between loses
-    the draft but changes nothing, so the user simply re-previews; a crash
-    after the copy leaves the op in library.db for startup recovery.
+    The draft is consumed before the copy: a crash in between loses the draft
+    but changes nothing; a crash after the copy leaves the op for recovery.
     """
     if not _schema_ok(conn):
         return _render(request, batch_id, None, None, None, _NOT_INIT, 503)
@@ -114,8 +117,7 @@ def _confirm_in_conn(
     try:
         final = run_move(oplog.get(op_id), ctx)
     except Exception as exc:  # noqa: BLE001 - the op stays where it stopped
-        # run_move stops only in terminal states, so the op is left ACTIVE
-        # (planned/intent/staged/applied); startup recovery re-runs it.
+        # run_move stops only in terminal states; startup recovery re-runs it.
         _LOG.warning("confirm %s: run_move raised %s", batch_id, exc)
         msg = f"stopped with {type(exc).__name__}; it will be recovered at the next startup"
         return _render(request, batch_id, draft, None, msg, None, 200)
@@ -124,10 +126,7 @@ def _confirm_in_conn(
 
 
 def _copy_batch(conn: sqlite3.Connection, draft: drafts.Draft) -> tuple[int, int]:
-    """Copy the draft batch and its op into library.db in one transaction.
-
-    Returns the new ``(batch_id, op_id)`` as they exist in library.db.
-    """
+    """Copy the draft batch and its op into library.db in one transaction."""
     now = _utcnow()
     conn.execute("BEGIN")
     try:

@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
 from organize_music.config import Config
-from organize_music.db.connection import open_reader
+from organize_music.db.connection import WriterLock, open_reader
 from organize_music.web import routes_files, routes_rename_one
 
 # library.db lives beside the rest of the state (backups, the writer lock, ...).
@@ -30,8 +30,17 @@ _DB_NAME = "library.db"
 _LOG = logging.getLogger(__name__)
 
 
-def create_app(config: Config) -> FastAPI:
-    """Build the library web app from a :class:`Config`."""
+def create_app(config: Config, writer_lock: WriterLock | None = None) -> FastAPI:
+    """Build the library web app from a :class:`Config`.
+
+    ``writer_lock`` is the WriterLock the ``serve`` process holds (None for a
+    standalone app). When not None, mutation handlers write without
+    re-acquiring the lock: a second in-process acquisition of an
+    ``fcntl.flock`` is always denied (it is per open file description), so
+    the per-request write connection simply writes directly. This is the
+    tracer's stand-in for the plan's job-worker ownership (WEB_UI_PLAN.md
+    §6.4 "One writer"), which the later batch runner (dnl.10) replaces.
+    """
     app = FastAPI(title="organize-music")
     static_dir = Path(__file__).parent / "static"
     templates_dir = Path(__file__).parent / "templates"
@@ -42,6 +51,7 @@ def create_app(config: Config) -> FastAPI:
     app.state.work_dir = config.work_dir
     app.state.purge_dir = config.purge_dir
     app.state.state_dir = config.state_dir
+    app.state.writer_lock = writer_lock
     app.state.templates = Jinja2Templates(directory=templates_dir)
     app.include_router(routes_files.router)
     app.include_router(routes_rename_one.router)

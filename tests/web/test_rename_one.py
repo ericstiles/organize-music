@@ -13,6 +13,10 @@ The web layer's end-to-end mutation, written test-first:
   synchronously and renders the result.
 * While ``config.mutations_enabled`` is false the confirm refuses with 403
   MUTATIONS_DISABLED; the preview still works (PLAN §9.4).
+* When the app was created with the WriterLock that ``serve`` holds (PLAN
+  §6.4 "One writer"), the confirm skips the re-acquisition (a second
+  in-process flock is always denied) and commits; a lock held by another
+  holder still refuses with 503 WRITER_BUSY.
 """
 
 from __future__ import annotations
@@ -20,12 +24,13 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from organize_music.config import load_config
-from organize_music.db import migrate
+from organize_music.db import WriterLock, migrate, open_writer
 from organize_music.db.files_repo import FilesRepo
 from organize_music.models import FileRecord
 from organize_music.ops import move
@@ -45,7 +50,13 @@ def _open_conn(path: Path) -> sqlite3.Connection:
 
 
 class Env:
-    """A real library root with one file, a migrated library.db, a web client."""
+    """A real library root with one file, a migrated library.db, a web client.
+
+    With ``server_owned_lock=True`` the app is created with a WriterLock that
+    this test holds for the test's lifetime: the shape of a served app, where
+    ``serve`` holds the writer lock for the server's lifetime (PLAN §6.4
+    "One writer").
+    """
 
     def __init__(
         self,
@@ -54,6 +65,7 @@ class Env:
         mutations_enabled: bool = True,
         rel: str = REL,
         content: bytes = CONTENT,
+        server_owned_lock: bool = False,
     ) -> None:
         self.root = tmp_path / "library"
         self.state = tmp_path / "state"
@@ -82,7 +94,23 @@ class Env:
             "purge_dir": self.purge,
             "mutations_enabled": mutations_enabled,
         }
-        self.client = TestClient(create_app(load_config(None, overrides=overrides)))
+        self.lock: WriterLock | None = None
+        if server_owned_lock:
+            # The shape of serve (run_serve): take the lock, open the startup
+            # write connection (which also puts library.db in WAL mode, as
+            # serve's startup does), then hand the held lock to the app.
+            self.lock = WriterLock(self.state / "writer.lock")
+            self.lock.__enter__()
+            wconn = open_writer(self.db)
+            wconn.close()
+        self.app = create_app(load_config(None, overrides=overrides), writer_lock=self.lock)
+        self.client = TestClient(self.app)
+
+    def close(self) -> None:
+        """Release the held lock, if any (the fd is unique to this test's state dir)."""
+        if self.lock is not None:
+            self.lock.__exit__(None, None, None)
+            self.lock = None
 
     # -- request helpers ----------------------------------------------------
 
@@ -368,3 +396,105 @@ def test_confirm_when_run_move_raises_before_any_step(tmp_path: Path) -> None:
     (op,) = conn.execute("SELECT state FROM operations").fetchall()
     conn.close()
     assert op["state"] == "planned"
+
+
+def test_confirm_with_server_owned_lock_succeeds(tmp_path: Path) -> None:
+    """The server process owns the writer lock for its lifetime (PLAN §6.4
+    "One writer"): a confirm through an app created with that held lock must
+    skip the re-acquisition (a second in-process flock is always denied) and
+    commit the rename."""
+    env = Env(tmp_path, server_owned_lock=True)
+    try:
+        assert env.preview("001-Renamed.mp3").status_code == 200
+        resp = env.confirm()
+        assert resp.status_code == 200
+        # Disk: the file was renamed while the server's lock was held.
+        assert (env.root / "artist/album/001-Renamed.mp3").read_bytes() == CONTENT
+        assert not (env.root / REL).exists()
+        # Row: path updated, row_version bumped by one.
+        row = env.library_row()
+        assert row["path"] == "artist/album/001-Renamed.mp3"
+        assert int(row["row_version"]) == 2
+        # The batch in library.db completed with one success.
+        (batch,) = env.library_batches()
+        assert batch["state"] == "completed"
+        assert batch["succeeded"] == 1 and batch["failed"] == 0
+    finally:
+        env.close()
+
+
+def test_confirm_while_other_holder_has_lock_is_503(tmp_path: Path) -> None:
+    """The app was NOT created with the lock ownership: a lock held by another
+    holder (here a second in-process flock; cross-process denial works the
+    same) refuses the confirm with 503 WRITER_BUSY before any write."""
+    env = Env(tmp_path)
+    assert env.preview("001-Renamed.mp3").status_code == 200
+    other = WriterLock(env.state / "writer.lock")
+    other.__enter__()
+    try:
+        resp = env.confirm()
+        assert resp.status_code == 503
+        assert "WRITER_BUSY" in resp.text
+        # Refused before any write: nothing moved, and the draft survives (it
+        # is consumed only after the lock is acquired).
+        assert (env.root / REL).read_bytes() == CONTENT
+        dconn = _open_conn(env.state / "drafts.db")
+        assert dconn.execute("SELECT COUNT(*) FROM batches").fetchone()[0] == 1
+        dconn.close()
+    finally:
+        other.__exit__(None, None, None)
+    # With the lock released, the same draft confirms.
+    assert env.confirm().status_code == 200
+    assert (env.root / "artist/album/001-Renamed.mp3").read_bytes() == CONTENT
+
+
+def test_two_inprocess_confirms_concurrent_both_commit(tmp_path: Path) -> None:
+    """Edge case (PLAN §6.4): two confirms in flight in one server-owned app.
+    Neither re-acquires the lock; SQLite serializes the write transactions and
+    each op re-checks its own row (the row_version compare-and-set), so both
+    commits land: two files renamed, both batches completed with one success."""
+    env = Env(tmp_path, server_owned_lock=True)
+    try:
+        rel2 = "artist/album/002-Song_2.mp3"
+        src2 = env.root / rel2
+        src2.write_bytes(b"track-two-bytes")
+        st2 = src2.stat()
+        conn = _open_conn(env.db)
+        file_id2 = FilesRepo(conn).insert_scanned(
+            FileRecord(path=Path(rel2), size=st2.st_size, mtime_ns=st2.st_mtime_ns, ext="mp3"),
+            "audio",
+            NOW,
+        )
+        conn.commit()
+        conn.close()
+        assert env.preview("001-Renamed.mp3").status_code == 200
+        resp2 = env.client.post(f"/files/{file_id2}/rename", data={"new_name": "002-Renamed.mp3"})
+        assert resp2.status_code == 200
+        dconn = _open_conn(env.state / "drafts.db")
+        rows = dconn.execute("SELECT batch_id FROM batches ORDER BY batch_id").fetchall()
+        dconn.close()
+        first, second = [int(r["batch_id"]) for r in rows]
+        # Two clients on two threads: the confirms are in flight at once.
+        client2 = TestClient(env.app)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f1 = pool.submit(env.client.post, f"/batches/{first}/confirm")
+            f2 = pool.submit(client2.post, f"/batches/{second}/confirm")
+            r1 = f1.result(timeout=30)
+            r2 = f2.result(timeout=30)
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+        # Both files were renamed on disk...
+        assert (env.root / "artist/album/001-Renamed.mp3").read_bytes() == CONTENT
+        assert (env.root / "artist/album/002-Renamed.mp3").read_bytes() == b"track-two-bytes"
+        # ...both rows were bumped exactly once...
+        conn = _open_conn(env.db)
+        versions = {int(r["row_version"]) for r in conn.execute("SELECT row_version FROM files")}
+        conn.close()
+        assert versions == {2}
+        # ...and both batches completed with one success each.
+        batches = env.library_batches()
+        assert len(batches) == 2
+        assert all(b["state"] == "completed" for b in batches)
+        assert all(b["succeeded"] == 1 and b["failed"] == 0 for b in batches)
+    finally:
+        env.close()
