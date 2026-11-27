@@ -8,9 +8,10 @@ LIBRARY_NOT_MOUNTED).
 
 ``serve`` takes the same lock (held for the server's lifetime, PLAN §6.4
 "One writer"), migrates, recovers when the library is mounted, and hands
-``create_app(config)`` to ``uvicorn.run`` with the config's bind host and
-port and exactly one worker. With the library not mounted it still serves,
-read-only.
+``create_app`` the app it builds over the configured database -- including
+the WriterLock it holds, so in-process mutation handlers never re-acquire --
+with the config's bind host and port and exactly one worker. With the
+library not mounted it still serves, read-only.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ import pytest
 import uvicorn
 
 from organize_music import cli
-from organize_music.db import WriterLock, migrate
+from organize_music.db import WriterBusy, WriterLock, migrate
 from organize_music.db.files_repo import FilesRepo
 from organize_music.models import FileRecord
 from organize_music.ops.move import plan_move_params
@@ -269,6 +270,26 @@ def test_serve_receives_config_bind_host_port_and_one_worker(
     assert kwargs["workers"] == 1
     # The app is the real factory output over the configured database.
     assert app.state.db_path == env.db
+
+
+def test_serve_passes_its_held_lock_to_the_app(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """serve hands the app the WriterLock it holds (PLAN §6.4 "One writer"):
+    inside the server the app knows the process owns the lock, and the lock
+    really is held while the server runs (a second acquisition is denied)."""
+    env = ServeEnv(tmp_path)
+    env.fake_mounted(monkeypatch)
+
+    def fake_run(app: object, **kwargs: object) -> None:
+        assert app.state.writer_lock is not None  # the app knows it owns the lock
+        with pytest.raises(WriterBusy):  # ...and the lock is really held
+            with WriterLock(env.state / "writer.lock"):
+                pass
+
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+
+    assert env.run("serve") == 0
 
 
 def test_serve_unmounted_library_still_serves(

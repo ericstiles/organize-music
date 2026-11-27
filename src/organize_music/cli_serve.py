@@ -3,9 +3,13 @@
 Both take the single-writer lock on ``state/writer.lock`` before touching
 ``library.db``. ``serve`` holds the lock for the server's lifetime (PLAN
 §6.4 "One writer"): ``uvicorn.run`` blocks inside the lock, and it is
-released only when the server stops. ``recover`` releases the lock once
-the recovery pass has finished. A lock already held by a running server
-is reported as "server is running" and the command exits 2.
+released only when the server stops. The app it serves is created with
+that held lock (``create_app(config, writer_lock=...)``): the in-process
+mutation handlers know the process owns the lock and write without
+re-acquiring it (a second in-process ``flock`` is always denied).
+``recover`` releases the lock once the recovery pass has finished. A lock
+already held by a running server is reported as "server is running" and
+the command exits 2.
 
 Under the lock the database is migrated, and -- when the library is
 mounted -- the startup recovery drives every active operation to a
@@ -113,20 +117,27 @@ def run_serve(config: Config) -> int:
     """Lock, migrate, recover if mounted, then serve on the configured bind.
 
     ``uvicorn.run`` blocks inside the lock, so the writer lock is held for
-    the server's lifetime and released only when the server stops.
+    the server's lifetime and released only when the server stops. The app
+    is created with that held lock: its in-process mutation handlers never
+    re-acquire it (PLAN §6.4 "One writer").
     """
     config.state_dir.mkdir(parents=True, exist_ok=True)
     db_path = config.state_dir / _DB_NAME
     conn: sqlite3.Connection | None = None
     try:
-        with WriterLock(config.state_dir / _LOCK_NAME):
+        with WriterLock(config.state_dir / _LOCK_NAME) as server_lock:
             conn = open_writer(db_path)
             if not _migrate(config, conn):
                 return EXIT_LOCKED
             if _recover(config, conn) is None:
                 _say("library not mounted: serving read-only (LIBRARY_NOT_MOUNTED)")
             _say(f"serving on http://{config.bind_host}:{config.bind_port}")
-            uvicorn.run(create_app(config), host=config.bind_host, port=config.bind_port, workers=1)
+            uvicorn.run(
+                create_app(config, writer_lock=server_lock),
+                host=config.bind_host,
+                port=config.bind_port,
+                workers=1,
+            )
             return EXIT_OK
     except WriterBusy as exc:
         _say(str(exc))
