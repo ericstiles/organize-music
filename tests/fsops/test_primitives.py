@@ -149,6 +149,67 @@ def test_rename_noreplace_eexist_from_the_syscall_raises_destination_exists(
     assert src.read_text() == "s"
 
 
+def test_darwin_enotempty_maps_to_destination_exists(
+    fs_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # macOS renamex_np(RENAME_EXCL) reports an occupied destination with ENOTEMPTY,
+    # while Linux renameat2(RENAME_NOREPLACE) reports EEXIST; the mapping must cover
+    # both so the no-replace contract holds on darwin.  The module's sys binding is
+    # swapped to force the darwin branch, so the test is deterministic on any host.
+    src = fs_dir / "source.txt"
+    dst = fs_dir / "late.txt"
+    src.write_text("s")
+    calls: list[tuple[object, ...]] = []
+    monkeypatch.setattr(primitives, "sys", types.SimpleNamespace(platform="darwin"))
+    monkeypatch.setattr(primitives, "_LIB", _fake_rename_lib(calls, -1, errno.ENOTEMPTY))
+    with pytest.raises(DestinationExists):
+        rename_noreplace(src, dst)
+    # The darwin branch ran: renamex_np(src, dst, RENAME_EXCL) — three args.
+    assert calls == [(os.fsencode(src), os.fsencode(dst), primitives.RENAME_EXCL)]
+    assert src.read_text() == "s"
+
+
+@pytest.mark.parametrize("platform", ["darwin", "linux"])
+def test_eexist_still_maps_to_destination_exists(
+    fs_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    platform: str,
+) -> None:
+    # The EEXIST -> DestinationExists mapping is unchanged on both platform branches.
+    src = fs_dir / "source.txt"
+    dst = fs_dir / "late.txt"
+    src.write_text("s")
+    calls: list[tuple[object, ...]] = []
+    monkeypatch.setattr(primitives, "sys", types.SimpleNamespace(platform=platform))
+    monkeypatch.setattr(primitives, "_LIB", _fake_rename_lib(calls, -1, errno.EEXIST))
+    with pytest.raises(DestinationExists):
+        rename_noreplace(src, dst)
+    assert len(calls) == 1
+    assert src.read_text() == "s"
+
+
+@pytest.mark.parametrize("platform", ["darwin", "linux"])
+@pytest.mark.parametrize("err", [errno.EINVAL, errno.ENOSYS])
+def test_einval_enosys_still_unsupported(
+    fs_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    platform: str,
+    err: int,
+) -> None:
+    # EINVAL and ENOSYS keep mapping to UnsupportedPlatform on both platform branches.
+    src = fs_dir / "source.txt"
+    dst = fs_dir / "late.txt"
+    src.write_text("s")
+    calls: list[tuple[object, ...]] = []
+    monkeypatch.setattr(primitives, "sys", types.SimpleNamespace(platform=platform))
+    monkeypatch.setattr(primitives, "_LIB", _fake_rename_lib(calls, -1, err))
+    with pytest.raises(UnsupportedPlatform):
+        rename_noreplace(src, dst)
+    assert len(calls) == 1
+    assert src.read_text() == "s"
+
+
 def test_rename_noreplace_never_falls_back_to_os_rename(
     fs_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
