@@ -12,6 +12,7 @@ or collision fails the op without moving the file.
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
 from organize_music.db import files_write
@@ -40,6 +41,9 @@ def run_move(op: Operation, ctx: OpContext) -> Operation:
     op = ctx.oplog.get(op.op_id)
     while op.state not in TERMINAL:
         op = _step(op, ctx)
+        # Fault hook (b8p.34): sleep after reaching a state named by OM_FAULT_SLEEP_AFTER.
+        if os.environ.get("OM_FAULT_SLEEP_AFTER") == op.state:
+            time.sleep(30.0)
     if op.state == "committed":
         _cleanup_empty_dirs(ctx, op)
     return ctx.oplog.get(op.op_id)
@@ -85,8 +89,7 @@ def _planned(op: Operation, ctx: OpContext) -> Operation:
     if not ctx.fs.same_device(src_path, _existing_ancestor(ctx.root, dst_path)):
         return _fail(ctx, op, "CROSS_DEVICE", mark_changed=False)
 
-    created = _missing_parents(ctx.root, dst_path)
-    params = {**op.params, "created_dirs": created}
+    params = {**op.params, "created_dirs": _missing_parents(ctx.root, dst_path)}
     return ctx.oplog.transition(op.op_id, "intent", params=params)
 
 
